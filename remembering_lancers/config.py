@@ -13,6 +13,12 @@ class BaseConfig:
     }
 
     SCRAPER_MAX_PAGES = int(os.environ.get("SCRAPER_MAX_PAGES", "1"))
+    CSV_EXPORT_PATH = os.environ.get(
+        "CSV_EXPORT_PATH",
+        os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "obituaries_data.csv")
+        ),
+    )
 
 
 class DevelopmentConfig(BaseConfig):

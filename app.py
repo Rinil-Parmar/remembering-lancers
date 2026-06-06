@@ -1,6 +1,6 @@
 # app.py
 import os
-from flask import render_template, jsonify, request, redirect, url_for
+from flask import jsonify, request, redirect, url_for
 from sqlalchemy import extract, func, text
 from flask import flash
 from sqlalchemy.orm import aliased
@@ -35,24 +35,9 @@ scrape_thread = None
 stop_event = threading.Event()
 stop_event.set() # Initially set to True to indicate scraper is not running
 last_scrape_time = None
+app.extensions["scraper_state"] = {"stop_event": stop_event}
 
 # --- Flask Routes ---
-@app.route('/')
-def dashboard():
-    """Route to display the scraper dashboard."""
-    with app.app_context():
-        total_alumni = DistinctObituary.query.distinct(DistinctObituary.name).count()
-        total_obituaries = DistinctObituary.query.count()
-        total_cities = len(set(obit.city for obit in DistinctObituary.query.all() if obit.city))
-        latest_obituaries = DistinctObituary.query.limit(15).all()
-        scraping_active = not stop_event.is_set()
-        return render_template('dashboard.html',
-                               total_alumni=total_alumni,
-                               total_obituaries=total_obituaries,
-                               total_cities=total_cities,
-                               obituaries=latest_obituaries,
-                               scraping_active= scraping_active,) # Pass scraping_active to template
-
 @app.route('/search_obituaries')
 def search_obituaries():
     """Route to return search results as JSON for dashboard filtering.""" # Updated docstring
@@ -223,7 +208,7 @@ def update_tags(obituary_id):
         distinct_obit.tags = new_tags
 
     db.session.commit()
-    return redirect(url_for('obituary_detail', obituary_id=obituary_id))
+    return redirect(url_for('web.obituary_detail', obituary_id=obituary_id))
 
 def is_last_day_of_month():
     logging.info("Checking is_last_day_of_month...") # Log when function is called
@@ -336,14 +321,6 @@ def run_scraper_background(stop_event):
                 logging.error(f"Error triggering automatic stop: {e}")
         logging.info("Scraper background thread finished.")
 
-@app.route('/obituary/<int:obituary_id>')
-def obituary_detail(obituary_id):
-    """Route to display details for a specific obituary."""
-    with app.app_context():
-        obituary = DistinctObituary.query.get_or_404(obituary_id) # Fetch from DistinctObituary, or Obituary if you prefer
-        return render_template('obituary_detail.html', obituary=obituary)
-
-
 def generate_csv():
     """Helper function to generate a fresh CSV file from the database."""
     with app.app_context():
@@ -385,12 +362,6 @@ def download_csv():
         return jsonify({'error': 'No obituaries available to download'}), 404
 
     return send_file(csv_file, as_attachment=True, download_name="obituaries.csv", mimetype="text/csv")
-
-
-@app.route('/about')
-def about():
-    """Route to display the About page."""
-    return render_template('about.html')
 
 
 if __name__ == "__main__":

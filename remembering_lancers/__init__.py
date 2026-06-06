@@ -26,4 +26,8 @@ def create_app(config_name=None):
     # Register SQLAlchemy models.
     from . import models
 
+    from .web import web_bp
+
+    app.register_blueprint(web_bp)
+
     return app

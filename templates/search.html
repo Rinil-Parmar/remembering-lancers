@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Obituary Search Results</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container">
+        <h2 class="mt-4">Search Results</h2>
+
+        <div id="obituaryList">
+            <div class="overflow-x-auto">
+                <table class="table table-striped">
+                    <thead>
+                    <tr>
+                        <th class="border px-4 py-2 text-left">Name</th>
+                        <th class="border px-4 py-2 text-left">City</th>
+                        <th class="border px-4 py-2 text-left">Province</th>
+                        <th class="border px-4 py-2 text-left">Birth Date</th>
+                        <th class="border px-4 py-2 text-left">Death Date</th>
+                        <th class="border px-4 py-2 text-left">Obituary URL</th>
+                    </tr>
+                    </thead>
+                     <tbody>
+                            {% if obituaries %}
+                                {% for obituary in obituaries %}
+                                    <tr>
+                                        <td>{{ obituary.name }}</td>
+                                        <td>{{ obituary.city|default('N/A') }}</td>
+                                        <td>{{ obituary.province|default('N/A') }}</td>
+                                        <td>{{ obituary.birth_date|default('N/A') }}</td>
+                                        <td>{{ obituary.death_date|default('N/A') }}</td>
+                                        <td><a href="{{ obituary.obituary_url }}" target="_blank">View</a></td>
+                                    </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center py-4 text-gray-500">No obituaries found for query: "{{ query }}".</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                </table>
+            </div>
+        </div>
+         <a href="/" class="btn btn-secondary mb-3">Back to Dashboard</a>
+    </div>
+</body>
+</html>

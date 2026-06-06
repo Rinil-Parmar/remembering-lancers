@@ -1,0 +1,251 @@
+/* styles.css */
+
+/* You can add any custom styles here that are not covered by Tailwind CSS */
+#obituaryList {
+    max-height: 70vh;
+    overflow-y: auto;
+    display: block; /* Add this line */
+}
+
+    .form-input, .form-select {
+        /* Keep the @apply styles or translate them to normal CSS if needed */
+        @apply shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md px-3 py-2;
+    }
+
+
+    /* Primary Button Style - Normal CSS (no @apply) */
+    .primary-button {
+        background-color: #60a5fa; /* Tailwind blue-500 */
+        color: white;
+        font-weight: 600; /* Tailwind font-semibold */
+        padding: 0.5rem 1rem; /* Tailwind py-2 px-4 (0.5rem = 8px, 1rem = 16px) */
+        border-radius: 0.5rem; /* Tailwind rounded-lg (0.5rem = 8px) */
+        outline: none; /* Tailwind focus:outline-none */
+        box-shadow: 0 0 transparent; /* Tailwind focus:shadow-outline - simplified for example */
+        transition: background-color 0.15s ease-in-out; /* Smooth transition for hover */
+        cursor: pointer; /* Indicate it's clickable */
+    }
+
+    .primary-button:hover {
+        background-color: #3b82f6; /* Tailwind blue-600 */
+    }
+
+    .primary-button:focus {
+        box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.5); /* Approximate focus shadow */
+    }
+
+
+    /* Secondary Button Style - Normal CSS (no @apply) */
+    .secondary-button {
+        background-color: #d4d4d4; /* Tailwind gray-300 */
+        color: #374151; /* Tailwind gray-800 */
+        font-weight: 600; /* Tailwind font-semibold */
+        padding: 0.5rem 1rem; /* Tailwind py-2 px-4 */
+        border-radius: 0.5rem; /* Tailwind rounded-lg */
+        outline: none; /* Tailwind focus:outline-none */
+        box-shadow: 0 0 transparent; /* Tailwind focus:shadow-outline - simplified */
+        transition: background-color 0.15s ease-in-out; /* Smooth transition for hover */
+        cursor: pointer; /* Indicate it's clickable */
+    }
+
+    .secondary-button:hover {
+        background-color: #a8a8a8; /* Tailwind gray-400 */
+    }
+
+    .secondary-button:focus {
+        box-shadow: 0 0 0 3px rgba(209, 213, 219, 0.5); /* Approximate focus shadow */
+    }
+
+    button:disabled {
+        background-color: #94a3b8; /* Tailwind gray-400 - a lighter gray */
+        color: #cbd5e0; /* Tailwind gray-200 - very light gray text */
+        cursor: not-allowed; /* Indicate non-interactiveness */
+        opacity: 0.7; /* Slightly reduce opacity */
+        box-shadow: none; /* Remove focus shadow if present */
+        /* You can add more styles to further indicate disabled state if needed */
+    }
+
+
+.accordion-button {
+    background-color: #f0f0f0;
+    color: #444;
+    cursor: pointer;
+    padding: 10px;
+    width: 100%;
+    text-align: left;
+    outline: none;
+    transition: 0.4s;
+    font-weight: bold;
+}
+
+.accordion-button:hover {
+    background-color: #ddd;
+}
+
+.accordion-content {
+    padding: 10px;
+    background-color: white;
+    border-top: 1px solid #ccc;
+    overflow: hidden; /* Initially hidden - important for animation */
+    transition: max-height 0.2s ease-out; /* Smooth animation for expanding/collapsing */
+}
+
+.hidden {
+    display: none;
+}
+
+.obituary-list {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+.obituary-list-item {
+    padding: 5px 0;
+    border-bottom: 1px dotted #eee;
+}
+
+.obituary-list-item:last-child {
+    border-bottom: none;
+}
+
+.obituary-list-item a {
+    text-decoration: none;
+    color: #007bff; /* Example link color */
+}
+
+.obituary-list-item a:hover {
+    text-decoration: underline;
+}
+
+.obituary-table {
+    width: 100%;
+    border-collapse: collapse; /* For single-line borders */
+    margin-bottom: 10px; /* Add some space below the table */
+}
+
+.obituary-table th, .obituary-table td {
+    border: 1px solid #ddd; /* Light grey borders for table cells */
+    padding: 8px;
+    text-align: left;
+}
+
+.obituary-table th {
+    background-color: #f2f2f2; /* Light grey background for header cells */
+    font-weight: bold;
+}
+
+/* Optional: Style for table rows on hover (if you want it consistent with previous table) */
+.obituary-table tbody tr.hover\:bg-gray-100:hover { /* Note: Escaping colon in CSS class */
+    background-color: #f7f7f7; /* Light grey hover background */
+}
+.tag-pill {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-right: 0.5rem;
+}
+
+.tag-new {
+    background-color: #3B82F6;
+    color: white;
+}
+
+.tag-updated {
+    background-color: #6B7280;
+    color: white;
+}
+
+#map {
+        height: 600px;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin: 20px 0;
+        border: 2px solid #fff;
+    }
+
+    .leaflet-popup-content-wrapper {
+        border-radius: 8px!important;
+        box-shadow: 0 0 0 0 !important;
+    }
+
+    .custom-marker {
+        background: #ffffff;
+        border: 2px solid;
+        border-radius: 50%;
+        width: 40px!important;
+        height: 40px!important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        transition: all 0.3s ease;
+    }
+
+    .custom-marker.new {
+        border-color: #10b981;
+        color: #10b981;
+    }
+
+    .custom-marker.updated {
+        border-color: #6b7280;
+        color: #6b7280;
+    }
+
+    .map-legend {
+        padding: 10px;
+        background: white;
+        border-radius: 5px;
+        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    }
+
+    .custom-cluster-marker div {
+    background-color: rgba(52, 152, 219, 0.8); /* Blue background */
+    color: white;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    border: 2px solid white;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+    font-size: 14px; /* Adjust font size as needed */
+}
+
+.custom-cluster-marker-legend {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: rgba(52, 152, 219, 0.8);
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 10px;
+    font-weight: bold;
+    border: 1px solid white;
+    box-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+}
+
+.custom-cluster-marker-legend span {
+    margin: auto; /* Center text */
+}
+
+
+/* Add this CSS to make the popup scrollable */
+.leaflet-popup-content-wrapper {
+    max-height: 300px; /* Adjust as needed */
+    overflow-y: auto; /* Enable vertical scrolling */
+    overflow-x: hidden; /* Prevent horizontal scrollbar */
+}
+
+.obituary-list {
+    padding-right: 10px; /* Add some padding for scrollbar visibility if needed */
+}
+/* Add more custom styles as needed */

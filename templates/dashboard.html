@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Remembering Lancers</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script
+      src="https://code.jquery.com/jquery-3.7.1.min.js"
+      integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+      crossorigin="anonymous"
+    ></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+      integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='styles.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <!-- Leaflet Marker Cluster -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+    />
+
+    <script>
+      let scrapingActive = {{ scraping_active|tojson }};
+      console.log("Initial scrapingActive:", scrapingActive); // Should log true/false
+    </script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  </head>
+  <body class="bg-gray-100">
+    <!-- Announcement Bar -->
+    <div
+      class="bg-yellow-100 border-b border-yellow-200 text-sm px-4 py-2 text-center"
+    >
+      ⚠️ <strong class="font-semibold">Educational Purpose:</strong> This
+      dashboard is for educational purposes. Obituary data is sourced from
+      <a
+        href="https://www.remembering.ca/"
+        target="_blank"
+        class="underline text-blue-500"
+        >remembering.ca</a
+      >.
+    </div>
+
+    <!-- Header -->
+    <header class="bg-white shadow-md py-4">
+      <div class="container mx-auto px-6 flex justify-between items-center">
+        <div class="text-xl font-bold text-gray-800">
+          📖 Remembering Lancers
+        </div>
+        <nav class="space-x-4">
+          <a href="/" class="hover:text-gray-600">🏠 Lancers's Board</a>
+          <!--            <a href="/settings" class="hover:text-gray-600">⚙️ Settings</a>-->
+          <a href="/about" class="hover:text-gray-600">ℹ️ About</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container mx-auto px-6 mt-6 flex">
+      <!-- Sidebar - Advanced Filters -->
+      <aside
+        class="w-72 mr-6 p-6 bg-white rounded-lg shadow-md h-fit sticky top-6"
+      >
+        <h3 class="font-semibold text-xl mb-5 text-gray-800">
+          <i class="fas fa-filter mr-2 text-blue-500"></i> Filter Obituaries
+        </h3>
+        <form id="filterForm" class="space-y-6">
+          <!-- Increased vertical spacing -->
+          <div>
+            <label
+              for="firstNameFilter"
+              class="block text-gray-700 text-sm font-medium mb-2"
+            >
+              <i class="fas fa-user mr-1 text-gray-500"></i> First Name:
+            </label>
+            <input
+              type="text"
+              class="form-input"
+              id="firstNameFilter"
+              name="firstName"
+              placeholder="Enter first name"
+              value="{{ request.args.firstName }}"
+            />
+          </div>
+          <div>
+            <label
+              for="lastNameFilter"
+              class="block text-gray-700 text-sm font-medium mb-2"
+            >
+              <i class="fas fa-user mr-1 text-gray-500"></i> Last Name:
+            </label>
+            <input
+              type="text"
+              class="form-input"
+              id="lastNameFilter"
+              name="lastName"
+              placeholder="Enter last name"
+              value="{{ request.args.lastName }}"
+            />
+          </div>
+          <div>
+            <label
+              for="cityFilter"
+              class="block text-gray-700 text-sm font-medium mb-2"
+            >
+              <i class="fas fa-city mr-1 text-gray-500"></i> City:
+            </label>
+            <input
+              type="text"
+              class="form-input"
+              id="cityFilter"
+              name="city"
+              placeholder="Enter city name"
+              value="{{ request.args.city }}"
+            />
+          </div>
+          <div>
+            <label
+              for="provinceFilter"
+              class="block text-gray-700 text-sm font-medium mb-2"
+            >
+              <i class="fas fa-map-marker-alt mr-1 text-gray-500"></i> Province:
+            </label>
+            <select
+              id="provinceFilter"
+              class="form-select bg-gray-50"
+              name="province"
+            >
+              <!-- Added light background -->
+              <option value="">Select Province</option>
+              <!-- Updated placeholder -->
+              <option value="Alberta">Alberta</option>
+              <option value="British Columbia">British Columbia</option>
+              <option value="Manitoba">Manitoba</option>
+              <option value="New Brunswick">New Brunswick</option>
+              <option value="Newfoundland and Labrador">
+                Newfoundland and Labrador
+              </option>
+              <option value="Nova Scotia">Nova Scotia</option>
+              <option value="Ontario">Ontario</option>
+              <option value="Prince Edward Island">Prince Edward Island</option>
+              <option value="Quebec">Quebec</option>
+              <option value="Saskatchewan">Saskatchewan</option>
+            </select>
+          </div>
+
+          <div class="flex justify-center space-x-3 mt-8">
+            <!-- Increased top margin for buttons -->
+            <button type="submit" class="primary-button">
+              <!-- Using primary-button class -->
+              🔎 Apply
+            </button>
+            <button
+              type="button"
+              onclick="clearFilters()"
+              class="secondary-button"
+            >
+              <!-- Using secondary-button class -->
+              🔄 Clear
+            </button>
+          </div>
+        </form>
+        <div class="mt-6 p-6 rounded-lg shadow-md border">
+          <h2 class="text-lg font-semibold mb-3">📥 Download Data</h2>
+          <p class="text-gray-600">
+            Download the Lancers alumni obituaries data as a CSV file.
+          </p>
+          <div class="mt-3 text-center">
+            <a
+              href="{{ url_for('download_csv') }}"
+              class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+            >
+              ⬇ Download CSV
+            </a>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="flex-1 p-6 bg-white rounded-lg shadow-md">
+        <!-- UWindsor Alumni Portrait & Welcome -->
+        <div class="flex items-center mb-8">
+          <img
+            src="{{ url_for('static', filename='images/alumnilogo.jpg') }}"
+            alt="University of Windsor Alumni"
+            class="w-72 mr-6 rounded-md"
+          />
+          <div>
+            <h2 class="text-2xl font-semibold text-gray-800 mb-2">
+              Welcome to the Lancers Alumni Obituary Dashboard
+            </h2>
+            <p class="text-gray-700">
+              Explore recent alumni obituaries and manage the scraping process.
+            </p>
+          </div>
+        </div>
+
+        <!-- Dashboard Summary Metrics -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div
+            class="bg-blue-100 p-4 rounded-lg shadow-sm border-b-4 border-blue-400"
+          >
+            <p class="text-gray-600 text-sm">Total Lancers Obituaries</p>
+            <p class="text-2xl font-bold text-gray-800" id="alumniCount">
+              {{ total_alumni }}
+            </p>
+            <!--                <p class="text-2xl font-bold text-gray-800" id="alumniCount">1668</p>-->
+          </div>
+          <div
+            class="bg-green-100 p-4 rounded-lg shadow-sm border-b-4 border-green-400"
+          >
+            <p class="text-gray-600 text-sm">Total Obituaries Processed</p>
+            <!--                                <p class="text-2xl font-bold text-gray-800" id="entriesFetched">{{ total_obituaries }}</p>-->
+            <p class="text-2xl font-bold text-gray-800" id="entriesFetched">
+              {{ total_obituaries }}
+            </p>
+          </div>
+          <div
+            class="bg-yellow-100 p-4 rounded-lg shadow-sm border-b-4 border-yellow-400"
+          >
+            <p class="text-gray-600 text-sm">Total Cities Processed</p>
+            <p class="text-2xl font-bold text-gray-800" id="citiesFetched">
+              {{ total_cities }}
+            </p>
+            <!--                <p class="text-2xl font-bold text-gray-800" id="citiesFetched">109</p>-->
+          </div>
+        </div>
+        <!-- Scraper Controls -->
+        <!-- index.html - Scraper Controls Section - RE-CORRECTED Button Logic -->
+        <div class="mb-6 p-6 rounded-lg shadow-md border">
+          <h2 class="text-lg font-semibold mb-3">⚙️ Scraper Controls</h2>
+          <p class="text-gray-600">
+            Start or stop the obituary scraping process.
+          </p>
+          <div class="mt-4 flex space-x-3">
+            <button
+              class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
+              onclick="startScraping()"
+              id="startButton"
+            >
+              ▶ Start
+            </button>
+            <button
+              class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600"
+              onclick="stopScraping()"
+              disabled
+              id="stopButton"
+            >
+              ⏹ Stop
+            </button>
+          </div>
+          <p class="mt-2 text-gray-500" id="scrapingStatus">Not running</p>
+          <p class="mt-2 text-gray-500">
+            Last Scrape Time: <span id="lastScrapeTimeDisplay">Never</span>
+          </p>
+        </div>
+
+        <!-- Recent Obituaries Section -->
+        <div class="rounded-lg shadow-md border">
+          <div class="flex justify-between items-center p-4 border-b">
+            <h2 class="text-lg font-semibold">📜 Recent Lancers Obituaries</h2>
+            <button
+              class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+              onclick="refreshObituaries()"
+            >
+              🔄 Refresh
+            </button>
+          </div>
+          <div id="loading-spinner" class="hidden flex">
+            <i class="fas fa-spinner fa-spin fa-2x"></i>
+            <p class="p-2 text-gray-500">Loading Obituaries...</p>
+          </div>
+          <div id="noNewEntries" class="hidden">
+            <p class="p-2 text-gray-500">No new entries found.</p>
+          </div>
+
+          <div id="obituaryAccordionContainer">
+            <!-- Accordion will be generated here by JavaScript -->
+          </div>
+        </div>
+      </main>
+    </div>
+    <div class="container mx-auto p-6">
+      <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-2xl font-semibold mb-4">🌍 Obituary Locations</h2>
+        <div id="map"></div>
+      </div>
+    </div>
+    <script>
+      const map = L.map("map", {
+        zoomSnap: 1,
+        fadeAnimation: true,
+        maxZoom: 18,
+        minZoom: 2,
+      }).setView([56.13, -106.346], 5);
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(map);
+
+      function createClusterIcon(count) {
+        return L.divIcon({
+          className: "custom-cluster-marker",
+          html: `<div><span>${count}</span></div>`,
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
+          popupAnchor: [0, -20],
+        });
+      }
+
+      fetch("/get_obituaries")
+        .then((response) => response.json())
+        .then((obituaries) => {
+          const locationGroups = {};
+
+          obituaries.forEach((obit) => {
+            if (obit.latitude && obit.longitude) {
+              const locationKey = `${obit.latitude},${obit.longitude}`;
+              if (!locationGroups[locationKey]) {
+                locationGroups[locationKey] = [];
+              }
+              locationGroups[locationKey].push(obit);
+            }
+          });
+
+          for (const locationKey in locationGroups) {
+            if (locationGroups.hasOwnProperty(locationKey)) {
+              const group = locationGroups[locationKey];
+              const [latitude, longitude] = locationKey.split(",").map(Number);
+              const count = group.length;
+
+              let popupContent = `
+                    <div class="leaflet-popup-content-wrapper">
+                        <div class="p-2 max-w-xs">
+                            <h3 class="font-bold text-lg text-center text-gray-900 mb-2">Obituaries (${count})</h3>
+                            <ul class="obituary-list">
+                            ${group
+                              .map(
+                                (obit) => `
+                                <li class="mb-4 border-b pb-2 last:border-b-0 last:mb-0">
+                                    <h4 class="font-semibold text-md text-gray-800">${obit.name}</h4>
+                                    <p class="text-sm text-gray-700">📍 <strong>${obit.city}, ${obit.province}</strong></p>
+                                    <p class="text-sm text-gray-600">📅 ${obit.death_date || "Unknown date"}</p>
+                                    <a href="/obituary/${obit.id}" class="text-blue-600 font-semibold hover:underline mt-1 block">
+                                        View Details →
+                                    </a>
+                                </li>`,
+                              )
+                              .join("")}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+
+              const marker = L.marker([latitude, longitude], {
+                icon: createClusterIcon(count),
+              }).bindPopup(popupContent);
+
+              marker.addTo(map);
+            }
+          }
+        });
+
+      const legend = L.control({ position: "bottomright" });
+
+      legend.onAdd = function () {
+        const div = L.DomUtil.create(
+          "div",
+          "map-legend p-3 rounded-lg shadow-lg bg-white border border-gray-300",
+        );
+        div.innerHTML = `
+        <h4 class="font-bold text-md text-center mb-2">🗺️ Map Legend</h4>
+        <div class="flex items-center">
+            <div class="custom-cluster-marker-legend mr-2"><span>#</span></div>
+<span class="text-xs">Location count</span>
+        </div>
+    `;
+        return div;
+      };
+
+      legend.addTo(map);
+    </script>
+  </body>
+</html>

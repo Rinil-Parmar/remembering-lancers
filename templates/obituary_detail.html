@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ obituary.name }} - Obituary Details</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+          integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg=="
+          crossorigin="anonymous" referrerpolicy="no-referrer"/>
+</head>
+<body class="bg-gray-100">
+<!-- Announcement Bar -->
+<div class="bg-yellow-100 border-b border-yellow-200 text-sm px-4 py-2 text-center">
+    ⚠️ <strong class="font-semibold">Educational Purpose:</strong> This dashboard is for educational purposes. Obituary data is sourced from <a href="https://www.remembering.ca/" target="_blank" class="underline text-blue-500">remembering.ca</a>.
+</div>
+
+<!-- Header -->
+<header class="bg-white shadow-md py-4">
+    <div class="container mx-auto px-6 flex justify-between items-center">
+        <div class="text-xl font-bold text-gray-800">📖 Obituary Scraper Dashboard</div>
+        <nav class="space-x-4">
+            <a href="/" class="hover:text-gray-600">🏠 Dashboard</a>
+            <!--            <a href="/settings" class="hover:text-gray-600">⚙️ Settings</a>-->
+            <a href="/about" class="hover:text-gray-600">ℹ️ About</a>
+        </nav>
+    </div>
+</header>
+
+<div class="container mx-auto p-6">
+    <header class="bg-white shadow-md p-4 mb-6 rounded-lg text-xl font-semibold text-gray-800">
+        Obituary Details
+    </header>
+
+    <div class="bg-white p-6 rounded-lg shadow-md space-y-4">
+
+        <h2 class="text-2xl font-semibold mb-4 text-center">{{ obituary.name }}</h2>
+
+        <!-- Row of First Four Sections -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+            <!-- Name Section -->
+            <section class="p-4 border rounded-lg shadow-sm">
+                <h3 class="font-semibold text-lg text-gray-700 mb-2"><i class="fas fa-user mr-2"></i> Name</h3>
+                <p class="text-gray-800">
+                    <span class="font-semibold">First:</span> {{ obituary.first_name or 'N/A' }}<br>
+                    <span class="font-semibold">Last:</span> {{ obituary.last_name or 'N/A' }}
+                </p>
+            </section>
+
+            <!-- Location Section -->
+            <section class="p-4 border rounded-lg shadow-sm">
+                <h3 class="font-semibold text-lg text-gray-700 mb-2"><i class="fas fa-map-marker-alt mr-2"></i> Location</h3>
+                <p class="text-gray-800">
+                    <span class="font-semibold">City:</span> {{ obituary.city or 'N/A' }}<br>
+                    <span class="font-semibold">Province:</span> {{ obituary.province or 'N/A' }}
+                </p>
+            </section>
+
+            <!-- Dates Section -->
+            <section class="p-4 border rounded-lg shadow-sm">
+                <h3 class="font-semibold text-lg text-gray-700 mb-2"><i class="far fa-calendar-alt mr-2"></i> Dates</h3>
+                <p class="text-gray-800">
+                    <span class="font-semibold">Birth:</span> {{ obituary.birth_date or 'N/A' }}<br>
+                    <span class="font-semibold">Death:</span> {{ obituary.death_date or 'N/A' }}
+                </p>
+            </section>
+
+            <!-- Funeral Home Section -->
+            <section class="p-4 border rounded-lg shadow-sm">
+                <h3 class="font-semibold text-lg text-gray-700 mb-2"><i class="fas fa-building mr-2"></i> Funeral Home</h3>
+                <p class="text-gray-800">{{ obituary.funeral_home or 'N/A' }}</p>
+            </section>
+        </div>
+
+        <!-- Family Information Section (Vertical) -->
+        <div class="mb-4">
+            <section class="p-4 border rounded-lg shadow-sm">
+                <h3 class="font-semibold text-lg text-gray-700 mb-2"><i class="fas fa-users mr-2"></i> Family Information</h3>
+                <p class="text-gray-800">{{ obituary.family_information or 'N/A' }}</p>
+            </section>
+        </div>
+
+        <!-- Donation Information Section (Vertical) -->
+        <div class="mb-4">
+            <section class="p-4 border rounded-lg shadow-sm">
+                <h3 class="font-semibold text-lg text-gray-700 mb-2"><i class="fas fa-hand-holding-heart mr-2"></i> Donation Information</h3>
+                <p class="text-gray-800">{{ obituary.donation_information or 'N/A' }}</p>
+            </section>
+        </div>
+
+        <!-- Obituary URL Section (Vertical) -->
+        <div class="mb-4">
+            <section class="p-4 border rounded-lg shadow-sm">
+                <h3 class="font-semibold text-lg text-gray-700 mb-2"><i class="fas fa-link mr-2"></i> Obituary URL</h3>
+                <p class="text-gray-800">
+                    <a href="{{ obituary.obituary_url }}" target="_blank" class="text-blue-500 hover:underline">
+                        View Online Obituary 🔗
+                    </a>
+                </p>
+            </section>
+        </div>
+
+        <div class="mb-4">
+            <section class="p-4 border rounded-lg shadow-sm">
+                <form id="tagUpdateForm" action="{{ url_for('update_tags', obituary_id=obituary.id) }}" method="POST">
+                    <h3 class="font-semibold text-lg text-gray-700 mb-2">
+                        <i class="fas fa-tags mr-2"></i> Status
+                    </h3>
+                    <div class="flex items-center gap-6">
+                        <div class="flex items-center space-x-2">
+                            <input type="radio" id="tag_new" name="tags" value="new"
+                                   {% if obituary.tags == "new" %}checked{% endif %}
+                                   class="h-4 w-4 text-blue-600 focus:ring-blue-500">
+                            <label for="tag_new" class="text-gray-800 flex items-center">
+                                <span class="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2"></span>
+                                New
+                            </label>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <input type="radio" id="tag_updated" name="tags" value="updated"
+                                   {% if obituary.tags == "updated" %}checked{% endif %}
+                                   class="h-4 w-4 text-gray-600 focus:ring-gray-500">
+                            <label for="tag_updated" class="text-gray-800 flex items-center">
+                                <span class="inline-block w-2 h-2 rounded-full bg-gray-500 mr-2"></span>
+                                Updated
+                            </label>
+                        </div>
+                        <button type="submit"
+                                class="ml-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                            Update Status
+                        </button>
+                    </div>
+                </form>
+            </section>
+        </div>
+    </div>
+
+        <div class="mt-6 text-center">
+            <a href="/" class="primary-button">
+                Back to Dashboard
+            </a>
+        </div>
+</div>
+</body>
+<script>
+document.querySelector('form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const button = this.querySelector('button');
+    const originalText = button.innerHTML;
+
+    button.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Updating...`;
+    button.disabled = true;
+
+    fetch(this.action, {
+        method: 'POST',
+        body: new FormData(this)
+    })
+    .then(response => {
+        if (response.ok) {
+            // Show check mark for 1 second before allowing new updates
+            button.innerHTML = `<i class="fas fa-check"></i> Updated!`;
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }, 1000);
+        } else {
+            button.innerHTML = `Error - Try Again`;
+            button.disabled = false;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        button.innerHTML = `Error - Try Again`;
+        button.disabled = false;
+    });
+});
+</script>
+</html>

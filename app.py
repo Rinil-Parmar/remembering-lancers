@@ -1,15 +1,14 @@
 # app.py
 import os
-from dotenv import load_dotenv
-from flask import Flask, render_template, jsonify, request, redirect, url_for
-from flask_migrate import Migrate
+from flask import render_template, jsonify, request, redirect, url_for
 from sqlalchemy import extract, func, text
 from flask import flash
 from sqlalchemy.orm import aliased
 
 import logging
-from flask_sqlalchemy import SQLAlchemy
-from models import Obituary, DistinctObituary, db
+from remembering_lancers import create_app
+from remembering_lancers.extensions import db
+from remembering_lancers.models import DistinctObituary, Obituary
 
 import csv, json
 from flask import send_file
@@ -25,24 +24,8 @@ import requests
 
 # requests.get('https://nominatim.openstreetmap.org', verify=certifi.where())
 
-load_dotenv()
-
-# Initialize Flask app (rest remains same as before)
-# app = Flask(__name__)
-# app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL',
-#                                                        'postgresql://postgres:admin@localhost/rememberingDB')
-# app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-    'DATABASE_URL',
-    'postgresql://postgres:admin@localhost:5432/rememberingDB'
-)
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-migrate = Migrate(app, db)
-db.init_app(app)
+app = create_app()
+CSV_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "obituaries_data.csv")
 
 # Import models to register with SQLAlchemy
 from scrapper import main
@@ -293,9 +276,8 @@ def start_scrape():
     stop_event.clear()  # Clear the stop event to start scraping
 
     # Overwrite CSV before starting the scraper
-    csv_file_path = "obituaries_data.csv"
-    if os.path.exists(csv_file_path):
-        open(csv_file_path, 'w').close()  # Truncate the file (overwrite)
+    if os.path.exists(CSV_FILE_PATH):
+        open(CSV_FILE_PATH, 'w').close()  # Truncate the file (overwrite)
 
     scrape_thread = threading.Thread(target=run_scraper_background, args=(stop_event,)) # Pass stop_event as argument
     scrape_thread.start()
@@ -370,9 +352,7 @@ def generate_csv():
         if not obituaries:
             return None  # No data available
 
-        csv_file_path = "obituaries_data.csv"
-
-        with open(csv_file_path, 'w', newline='') as csvfile:
+        with open(CSV_FILE_PATH, 'w', newline='') as csvfile:
             # fieldnames = ['id', 'name', 'first_name', 'last_name', 'city', 'province', 'birth_date',
             #               'death_date', 'obituary_url']
             fieldnames = ['id', 'name', 'first_name', 'last_name', 'city', 'province', 'birth_date',
@@ -394,7 +374,7 @@ def generate_csv():
                     'tags': obit.tags,
                 })
 
-        return csv_file_path  # Return the file path
+        return CSV_FILE_PATH
 
 
 @app.route('/download_csv')

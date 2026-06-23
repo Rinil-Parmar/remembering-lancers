@@ -1,70 +1,71 @@
 # Remembering Lancers
 
-Remembering Lancers is a Flask-based obituary scraping and management dashboard. It searches Remembering.ca obituary listings, identifies records mentioning the University of Windsor, stores alumni records in PostgreSQL, and displays them through a searchable dashboard and map.
+Remembering Lancers is a Flask-based obituary scraping and management dashboard for identifying Remembering.ca obituary records that mention the University of Windsor. It stores alumni records in PostgreSQL and displays them through a searchable dashboard, CSV export, and location map.
 
-> This project is for educational and research purposes. Obituary data remains the property of its original publishers and sources.
+> This project is being upgraded from a student prototype into a production-ready application.
 
 ## Features
 
-- Search Remembering.ca obituary listings
-- Identify University of Windsor alumni
-- Store obituary records in PostgreSQL
-- Search and filter records by name, city, and province
-- Display obituary locations on an interactive map
-- Review and update record status
-- Export records as CSV
-- Start and stop scraping from the dashboard
+- Search and filter alumni obituary records
+- Store data with Flask-SQLAlchemy and PostgreSQL
+- Start and stop the scraper from the dashboard
+- Detect University of Windsor alumni mentions
+- Export alumni records to CSV
+- Show obituary locations on a Leaflet map
+- Run with Flask locally or Waitress for a production-style WSGI server
 
-## Technology Stack
+## Tech Stack
 
 - Python 3.13
 - Flask
 - Flask-SQLAlchemy
+- Flask-Migrate
 - PostgreSQL
 - Beautiful Soup
 - Requests
-- spaCy
 - APScheduler
+- Geopy
 - Leaflet
-- Tailwind CSS
+- Waitress
+- Pytest
 
 ## Project Structure
 
 ```text
 remembering-lancers/
-├── app.py                  # Flask application and routes
-├── models.py               # SQLAlchemy database models
-├── scrapper.py             # Obituary scraping logic
-├── requirements.txt        # Python dependencies
-├── migrations/             # Database migration files
-├── templates/              # Flask HTML templates
-├── static/
-│   ├── images/
-│   ├── script.js
-│   └── styles.css
-└── obituaries_data.csv     # Generated CSV export
+├── app.py                         # Local Flask development entrypoint
+├── wsgi.py                        # Production-style WSGI entrypoint
+├── models.py                      # Compatibility wrapper for old imports
+├── scrapper.py                    # Compatibility wrapper for old scraper imports
+├── requirements.txt               # Runtime dependencies
+├── requirements-dev.txt           # Test/development dependencies
+├── pytest.ini                     # Pytest configuration
+├── remembering_lancers/
+│   ├── __init__.py                # Flask app factory
+│   ├── config.py                  # Environment-based configuration
+│   ├── extensions.py              # Flask extension instances
+│   ├── models.py                  # SQLAlchemy models
+│   ├── api/                       # JSON API routes
+│   ├── web/                       # HTML page routes
+│   └── scraper/                   # Scraper routes, service, parser, runner
+├── migrations/                    # Flask-Migrate/Alembic files
+├── templates/                     # Jinja templates
+├── static/                        # CSS, JavaScript, images
+└── tests/                         # Regression tests
 ```
-
-## Prerequisites
-
-Install the following before running the project:
-
-- Python 3.13, 64-bit
-- PostgreSQL 15 or newer
-- Git
 
 ## Local Setup
 
-### 1. Clone the repository
+### 1. Clone and enter the project
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/remembering-lancers.git
+git clone https://github.com/Rinil-Parmar/remembering-lancers.git
 cd remembering-lancers
 ```
 
 ### 2. Create and activate a virtual environment
 
-Git Bash on Windows:
+Git Bash:
 
 ```bash
 py -3.13 -m venv .venv
@@ -83,41 +84,32 @@ py -3.13 -m venv .venv
 ```bash
 python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
-python -m spacy download en_core_web_sm
+pip install -r requirements-dev.txt
 ```
 
-### 4. Create the PostgreSQL database
-
-Open PostgreSQL:
+### 4. Create PostgreSQL database
 
 ```bash
-psql -U postgres
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -c "CREATE DATABASE remembering_lancers_dev;"
 ```
 
-Create the development database:
-
-```sql
-CREATE DATABASE remembering_lancers_dev;
-\q
-```
+If the database already exists, continue to the next step.
 
 ### 5. Configure environment variables
 
-Copy `.env.example` to `.env`:
-
-Git Bash:
+Copy the example file:
 
 ```bash
 cp .env.example .env
 ```
 
-PowerShell:
+PowerShell alternative:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Update `.env` with your PostgreSQL password and a secure secret key:
+Update `.env`:
 
 ```env
 FLASK_APP=app.py
@@ -125,9 +117,12 @@ FLASK_DEBUG=1
 SECRET_KEY=replace-with-a-secure-secret
 DATABASE_URL=postgresql://postgres:your-password@localhost:5432/remembering_lancers_dev
 SCRAPER_MAX_PAGES=1
+APP_ENV=development
+HOST=0.0.0.0
+PORT=8000
 ```
 
-Generate a secure secret key with:
+Generate a secure secret key:
 
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))"
@@ -135,13 +130,13 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 ### 6. Create database tables
 
-The migration history is currently being rebuilt. For the current development version, create tables from the SQLAlchemy models:
+The migration history still needs cleanup. For the current development setup, create tables from the SQLAlchemy models:
 
 ```bash
 python -c "from app import app, db; app.app_context().push(); db.create_all(); print('tables created')"
 ```
 
-### 7. Run the application
+### 7. Run locally
 
 ```bash
 flask run
@@ -153,30 +148,50 @@ Open:
 http://127.0.0.1:5000
 ```
 
+## Production-Style Run
+
+Use the WSGI entrypoint with Waitress:
+
+```bash
+python wsgi.py
+```
+
+Default URL:
+
+```text
+http://127.0.0.1:8000
+```
+
+For Linux deployment later, the same app object is available as:
+
+```text
+wsgi:app
+```
+
+## Testing
+
+```bash
+python -m pytest
+```
+
 ## Scraper Safety
 
-For local testing, keep the scraper page limit low:
+Keep local scraper runs small while testing:
 
 ```env
 SCRAPER_MAX_PAGES=1
 ```
 
-Increase this only after validating scraper behavior and respecting the source website's terms, rate limits, and robots policy.
+Increase this only after validating scraper behavior and respecting the source site's terms, rate limits, and robots policy.
 
-## Production Status
+## Current Production Gaps
 
-This project is currently being upgraded from a student prototype to a production-ready application.
-
-Remaining production work includes:
-
-- Repairing database migrations
-- Improving scraper duplicate handling
-- Adding authentication and authorization
-- Moving scraping into a dedicated worker
-- Adding automated tests
-- Improving frontend responsiveness and accessibility
-- Adding Docker configuration
-- Adding production logging and monitoring
+- Database migrations need to be rebuilt and verified
+- Scraper network logic needs stronger mocked tests
+- Authentication and authorization are not implemented
+- Scraping should eventually run as a separate worker for production
+- Docker configuration still needs to be added
+- Production logging and monitoring still need setup
 
 ## Data and Privacy
 

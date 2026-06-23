@@ -9,6 +9,7 @@ from flask import (
     send_file,
     url_for,
 )
+from sqlalchemy import func
 
 from . import web_bp
 from ..extensions import db
@@ -17,7 +18,9 @@ from ..models import DistinctObituary, Obituary
 
 @web_bp.route("/")
 def dashboard():
-    total_alumni = DistinctObituary.query.distinct(DistinctObituary.name).count()
+    total_alumni = db.session.query(
+        func.count(func.distinct(DistinctObituary.name))
+    ).scalar()
     total_obituaries = DistinctObituary.query.count()
     total_cities = len(
         {
@@ -40,7 +43,7 @@ def dashboard():
 
 @web_bp.route("/obituary/<int:obituary_id>")
 def obituary_detail(obituary_id):
-    obituary = DistinctObituary.query.get_or_404(obituary_id)
+    obituary = db.get_or_404(DistinctObituary, obituary_id)
     return render_template("obituary_detail.html", obituary=obituary)
 
 
@@ -55,7 +58,7 @@ def update_tags(obituary_id):
     if new_tags not in {"new", "updated"}:
         return jsonify({"error": "Invalid tag value"}), 400
 
-    distinct_obituary = DistinctObituary.query.get_or_404(obituary_id)
+    distinct_obituary = db.get_or_404(DistinctObituary, obituary_id)
     distinct_obituary.tags = new_tags
     Obituary.query.filter_by(
         obituary_url=distinct_obituary.obituary_url

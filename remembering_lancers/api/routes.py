@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 
 from flask import jsonify, request
-from sqlalchemy import extract, func, text
+from sqlalchemy import func
 from sqlalchemy.orm import aliased
 
 from . import api_bp
@@ -87,6 +87,7 @@ def get_obituaries():
     obituaries = (
         db.session.query(obituary_alias)
         .filter(subquery.c.row_num == 1)
+        .filter(obituary_alias.is_alumni.is_(True))
         .order_by(obituary_alias.publication_date.desc())
         .all()
     )
@@ -104,42 +105,9 @@ def get_publications_by_year_endpoint():
 
 def get_publications_grouped_by_year():
     try:
-        result = (
-            db.session.query(
-                extract("year", DistinctObituary.publication_date).label(
-                    "publication_year"
-                ),
-                func.json_agg(
-                    func.json_build_object(
-                        "id",
-                        DistinctObituary.id,
-                        "name",
-                        DistinctObituary.name,
-                        "first_name",
-                        DistinctObituary.first_name,
-                        "last_name",
-                        DistinctObituary.last_name,
-                        "obituary_url",
-                        DistinctObituary.obituary_url,
-                        "city",
-                        DistinctObituary.city,
-                        "province",
-                        DistinctObituary.province,
-                        "birth_date",
-                        DistinctObituary.birth_date,
-                        "death_date",
-                        DistinctObituary.death_date,
-                        "publication_date",
-                        DistinctObituary.publication_date,
-                        "is_alumni",
-                        DistinctObituary.is_alumni,
-                        "tags",
-                        DistinctObituary.tags,
-                    )
-                ).label("publications_in_year"),
-            )
-            .group_by(extract("year", DistinctObituary.publication_date))
-            .order_by(text("publication_year DESC"))
+        obituaries = (
+            DistinctObituary.query.filter(DistinctObituary.is_alumni.is_(True))
+            .order_by(DistinctObituary.publication_date.desc())
             .all()
         )
 
@@ -149,13 +117,18 @@ def get_publications_grouped_by_year():
         }
         grouped_data["Before 2022"] = []
 
-        for row in result:
-            year = int(row.publication_year) if row.publication_year else None
-            publications = list(row.publications_in_year or [])
+        for obituary in obituaries:
+            year = (
+                obituary.publication_date.year
+                if obituary.publication_date
+                else None
+            )
             if year and year >= 2022:
-                grouped_data.setdefault(str(year), []).extend(publications)
+                grouped_data.setdefault(str(year), []).append(
+                    serialize_obituary(obituary)
+                )
             elif year:
-                grouped_data["Before 2022"].extend(publications)
+                grouped_data["Before 2022"].append(serialize_obituary(obituary))
 
         return grouped_data
     except Exception:

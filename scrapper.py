@@ -548,6 +548,23 @@ def get_publication_date_from_soup(soup):
 
     return None
 
+
+# Package modules are now the source of truth for pure scraper helpers.
+# Keep these names available here for backward compatibility while the
+# monolithic scraper is being split into package modules.
+from remembering_lancers.scraper.locations import (
+    CITY_PROVINCE_MAPPING,
+    extract_city_and_province,
+)
+from remembering_lancers.scraper.parser import (
+    extract_birth_and_death_dates_from_obituary,
+    extract_dates,
+    extract_text,
+    extract_year_from_date,
+    get_publication_date_from_soup,
+    parse_date,
+)
+
 def process_obituary(session, db_session, url, visited_obituaries, stop_event):
     """Extract obituary details, check for alumni keywords, and store in DB."""
     time.sleep(0.2)

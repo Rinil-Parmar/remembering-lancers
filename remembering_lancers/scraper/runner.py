@@ -1,7 +1,7 @@
-import logging
 import os
 import random
 import time
+import logging
 from datetime import datetime
 from urllib.parse import quote_plus, urljoin, urlparse
 
@@ -22,12 +22,6 @@ from .parser import (
     get_publication_date_from_soup,
 )
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 
 BASE_DOMAIN = "remembering.ca"
 SEARCH_KEYWORD = "Windsor University"

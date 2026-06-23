@@ -5,8 +5,9 @@ from flask import Flask
 
 load_dotenv()
 
-from .config import CONFIGS
+from .config import CONFIGS, validate_config
 from .extensions import db, migrate
+from .logging_config import configure_logging
 
 
 def create_app(config_name=None):
@@ -19,6 +20,8 @@ def create_app(config_name=None):
     )
 
     app.config.from_object(CONFIGS[selected_config])
+    validate_config(selected_config, app.config)
+    configure_logging(app)
 
     db.init_app(app)
     migrate.init_app(app, db)

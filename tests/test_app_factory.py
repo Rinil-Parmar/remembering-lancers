@@ -1,3 +1,8 @@
+import pytest
+
+from remembering_lancers import create_app
+
+
 def test_app_factory_registers_expected_routes(app):
     endpoints = {rule.endpoint for rule in app.url_map.iter_rules()}
 
@@ -9,3 +14,11 @@ def test_app_factory_registers_expected_routes(app):
         "scraping_active": False,
         "last_scrape_time": None,
     }
+
+
+def test_production_config_requires_secret_and_database_url(monkeypatch):
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with pytest.raises(RuntimeError, match="Missing required production"):
+        create_app("production")

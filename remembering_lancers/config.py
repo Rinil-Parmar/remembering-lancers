@@ -11,6 +11,7 @@ class BaseConfig:
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True,
     }
+    LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
     SCRAPER_MAX_PAGES = int(os.environ.get("SCRAPER_MAX_PAGES", "1"))
     CSV_EXPORT_PATH = os.environ.get(
@@ -42,3 +43,22 @@ CONFIGS = {
     "production": ProductionConfig,
     "testing": TestingConfig,
 }
+
+
+def validate_config(config_name, app_config):
+    if config_name != "production":
+        return
+
+    missing = [
+        env_var
+        for env_var in ("SECRET_KEY", "DATABASE_URL")
+        if not os.environ.get(env_var)
+    ]
+    if missing:
+        raise RuntimeError(
+            "Missing required production environment variables: "
+            + ", ".join(missing)
+        )
+
+    if app_config["SECRET_KEY"] == "dev-secret-change-me":
+        raise RuntimeError("Production SECRET_KEY must not use the development default.")

@@ -128,12 +128,12 @@ Generate a secure secret key:
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-### 6. Create database tables
+### 6. Run database migrations
 
-The migration history still needs cleanup. For the current development setup, create tables from the SQLAlchemy models:
+Create or update tables from the Alembic migration history:
 
 ```bash
-python -c "from app import app, db; app.app_context().push(); db.create_all(); print('tables created')"
+flask db upgrade
 ```
 
 ### 7. Run locally
@@ -168,6 +168,33 @@ For Linux deployment later, the same app object is available as:
 wsgi:app
 ```
 
+## Docker
+
+Build and run the Flask app with PostgreSQL:
+
+```bash
+docker compose up --build
+```
+
+The web container runs migrations before starting Waitress:
+
+```text
+flask db upgrade && python wsgi.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+For real deployment, change these Compose defaults before exposing the app:
+
+- `SECRET_KEY`
+- `POSTGRES_PASSWORD`
+- `DATABASE_URL`
+- published ports and network settings
+
 ## Testing
 
 ```bash
@@ -186,11 +213,9 @@ Increase this only after validating scraper behavior and respecting the source s
 
 ## Current Production Gaps
 
-- Database migrations need to be rebuilt and verified
 - Scraper network logic needs stronger mocked tests
 - Authentication and authorization are not implemented
 - Scraping should eventually run as a separate worker for production
-- Docker configuration still needs to be added
 - Production logging and monitoring still need setup
 
 ## Data and Privacy

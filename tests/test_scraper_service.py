@@ -1,5 +1,8 @@
 import time
 
+from remembering_lancers.scraper import runner
+from remembering_lancers.scraper.service import ScraperService
+
 
 def test_scraper_service_lifecycle(client, app):
     service = app.extensions["scraper_service"]
@@ -38,3 +41,7 @@ def test_scraper_service_finishes_background_run(client, app):
     assert response.status_code == 200
     assert status["scraping_active"] is False
     assert status["last_scrape_time"] is not None
+
+
+def test_scraper_service_loads_packaged_runner():
+    assert ScraperService._load_runner() is runner.main

@@ -6,6 +6,7 @@ from remembering_lancers.scraper.parser import (
     extract_dates,
     get_publication_date_from_soup,
 )
+from remembering_lancers.scraper.runner import SEARCH_KEYWORD, is_alumni_obituary
 
 
 def test_extract_city_and_province_from_known_subdomain():
@@ -55,3 +56,14 @@ def test_extract_dates_from_obit_dates_tag():
 def test_scrapper_exports_package_helper_functions_for_compatibility():
     assert scrapper.extract_city_and_province is extract_city_and_province
     assert scrapper.get_publication_date_from_soup is get_publication_date_from_soup
+
+
+def test_search_keyword_is_encoded_as_a_single_search_phrase():
+    assert SEARCH_KEYWORD == "Windsor University"
+    assert isinstance(scrapper.SEARCH_KEYWORD, str)
+
+
+def test_alumni_detection_is_case_insensitive():
+    assert is_alumni_obituary("A proud graduate of the university of windsor.")
+    assert is_alumni_obituary("He loved UWindsor and the local community.")
+    assert not is_alumni_obituary("A long-time Windsor resident.")

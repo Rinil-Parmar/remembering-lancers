@@ -101,7 +101,7 @@ class ScraperService:
 
     @staticmethod
     def _load_runner():
-        from scrapper import main
+        from .runner import main
 
         return main
 

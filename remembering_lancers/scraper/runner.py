@@ -558,9 +558,8 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
 
         db_session.add(Obituary(**payload))
 
-        distinct_exists = DistinctObituary.query.filter(
-            (DistinctObituary.obituary_url == url)
-            | (DistinctObituary.name == payload["name"])
+        distinct_exists = DistinctObituary.query.filter_by(
+            obituary_url=url
         ).first()
         if not distinct_exists:
             db_session.add(DistinctObituary(**payload))

@@ -24,8 +24,25 @@ from .parser import (
 
 
 BASE_DOMAIN = "remembering.ca"
+DEFAULT_SEARCH_KEYWORDS = [
+    "University of Windsor",
+    "UWindsor",
+    "Windsor University",
+]
+
+DEFAULT_ALUMNI_KEYWORDS = {
+    "University of Windsor",
+    "UWindsor",
+    "Windsor University",
+    "Assumption University",
+    "Assumption College",
+    "Windsor Law",
+}
+
+# Backward-compatible names for older imports and tests.
 SEARCH_KEYWORD = "Windsor University"
-ALUMNI_KEYWORDS = {"University of Windsor", "UWindsor", "Windsor University"}
+ALUMNI_KEYWORDS = DEFAULT_ALUMNI_KEYWORDS
+
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
@@ -36,6 +53,32 @@ USER_AGENTS = [
 ]
 
 geolocator = Nominatim(user_agent="obituary_mapper")
+
+
+def get_search_keywords():
+    raw_keywords = os.environ.get("SCRAPER_SEARCH_KEYWORDS")
+    if not raw_keywords:
+        return DEFAULT_SEARCH_KEYWORDS
+
+    return [
+        keyword.strip()
+        for keyword in raw_keywords.split(",")
+        if keyword.strip()
+    ]
+
+
+def current_month_only_enabled():
+    return os.environ.get("SCRAPER_CURRENT_MONTH_ONLY", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def get_target_city():
+    city = os.environ.get("SCRAPER_CITY", "").strip().lower()
+    return city or None
 
 
 def configure_session():
@@ -282,7 +325,10 @@ def is_current_month_and_year(publication_date_str):
 
 def is_alumni_obituary(content_text):
     normalized_content = (content_text or "").casefold()
-    return any(keyword.casefold() in normalized_content for keyword in ALUMNI_KEYWORDS)
+    return any(
+        keyword.casefold() in normalized_content
+        for keyword in DEFAULT_ALUMNI_KEYWORDS
+    )
 
 
 def build_obituary_payload(

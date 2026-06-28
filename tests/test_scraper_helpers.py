@@ -6,7 +6,13 @@ from remembering_lancers.scraper.parser import (
     extract_dates,
     get_publication_date_from_soup,
 )
-from remembering_lancers.scraper.runner import SEARCH_KEYWORD, is_alumni_obituary
+from remembering_lancers.scraper.runner import (
+    SEARCH_KEYWORD,
+    current_month_only_enabled,
+    get_search_keywords,
+    get_target_city,
+    is_alumni_obituary,
+)
 
 
 def test_extract_city_and_province_from_known_subdomain():
@@ -67,3 +73,13 @@ def test_alumni_detection_is_case_insensitive():
     assert is_alumni_obituary("A proud graduate of the university of windsor.")
     assert is_alumni_obituary("He loved UWindsor and the local community.")
     assert not is_alumni_obituary("A long-time Windsor resident.")
+
+
+def test_scraper_configuration_helpers_read_environment(monkeypatch):
+    monkeypatch.setenv("SCRAPER_SEARCH_KEYWORDS", "Alpha, Beta,, Gamma ")
+    monkeypatch.setenv("SCRAPER_CURRENT_MONTH_ONLY", "false")
+    monkeypatch.setenv("SCRAPER_CITY", "WindsorStar")
+
+    assert get_search_keywords() == ["Alpha", "Beta", "Gamma"]
+    assert current_month_only_enabled() is False
+    assert get_target_city() == "windsorstar"

@@ -12,6 +12,7 @@ from remembering_lancers.scraper.runner import (
     get_search_keywords,
     get_target_city,
     is_alumni_obituary,
+    order_subdomains,
 )
 
 
@@ -83,3 +84,39 @@ def test_scraper_configuration_helpers_read_environment(monkeypatch):
     assert get_search_keywords() == ["Alpha", "Beta", "Gamma"]
     assert current_month_only_enabled() is False
     assert get_target_city() == "windsorstar"
+
+
+def test_order_subdomains_prioritizes_windsor_and_nearby_locations(monkeypatch):
+    monkeypatch.delenv("SCRAPER_CITY", raising=False)
+
+    ordered = order_subdomains(
+        [
+            "ottawa",
+            "calgary",
+            "windsorstar",
+            "lfpress",
+            "theobserver",
+        ]
+    )
+
+    assert ordered[:4] == [
+        "windsorstar",
+        "theobserver",
+        "lfpress",
+        "ottawa",
+    ]
+    assert ordered[-1] == "calgary"
+
+
+def test_order_subdomains_uses_single_target_city(monkeypatch):
+    monkeypatch.setenv("SCRAPER_CITY", "windsorstar")
+
+    assert order_subdomains(["calgary", "windsorstar", "ottawa"]) == [
+        "windsorstar"
+    ]
+
+
+def test_order_subdomains_returns_empty_when_target_city_missing(monkeypatch):
+    monkeypatch.setenv("SCRAPER_CITY", "missingcity")
+
+    assert order_subdomains(["calgary", "windsorstar", "ottawa"]) == []

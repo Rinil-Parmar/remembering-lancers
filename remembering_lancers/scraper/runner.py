@@ -39,6 +39,20 @@ DEFAULT_ALUMNI_KEYWORDS = {
     "Windsor Law",
 }
 
+PRIORITY_SUBDOMAINS = [
+    "windsorstar",
+    "chathamdailynews",
+    "theobserver",
+    "lfpress",
+    "stratfordbeaconherald",
+    "stthomastimesjournal",
+    "woodstocksentinelreview",
+    "brantfordexpositor",
+    "thewhig",
+    "ottawa",
+    "torontosun",
+]
+
 # Backward-compatible names for older imports and tests.
 SEARCH_KEYWORD = "Windsor University"
 ALUMNI_KEYWORDS = DEFAULT_ALUMNI_KEYWORDS
@@ -79,6 +93,34 @@ def current_month_only_enabled():
 def get_target_city():
     city = os.environ.get("SCRAPER_CITY", "").strip().lower()
     return city or None
+
+
+def order_subdomains(subdomains):
+    target_city = get_target_city()
+    available_subdomains = list(dict.fromkeys(subdomains))
+
+    if target_city:
+        if target_city in available_subdomains:
+            return [target_city]
+
+        logging.warning(
+            "SCRAPER_CITY=%s was not found in available subdomains.",
+            target_city,
+        )
+        return []
+
+    priority = [
+        subdomain
+        for subdomain in PRIORITY_SUBDOMAINS
+        if subdomain in available_subdomains
+    ]
+    remaining = [
+        subdomain
+        for subdomain in available_subdomains
+        if subdomain not in priority
+    ]
+
+    return priority + remaining
 
 
 def configure_session():
@@ -533,7 +575,14 @@ def main(stop_event):
         logging.error("No city subdomains found. Aborting.")
         return
 
+    subdomains = order_subdomains(subdomains)
+    if not subdomains:
+        logging.error("No matching city subdomains to process. Aborting.")
+        return
+
+    logging.info("City scrape order: %s", ", ".join(subdomains))
     logging.info("Found %s city subdomains to process.", len(subdomains))
+
     for subdomain in subdomains:
         if stop_event.is_set():
             logging.info("Scraping stopped by system request")

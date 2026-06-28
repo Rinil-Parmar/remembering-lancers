@@ -47,3 +47,29 @@ class DistinctObituary(db.Model):
 
     def __repr__(self):
         return f"<DistinctObituary {self.name} - {self.city}, {self.province}>"
+
+
+class ScrapeState(db.Model):
+    __tablename__ = "scrape_state"
+
+    id = db.Column(db.Integer, primary_key=True)
+    subdomain = db.Column(db.String(255), nullable=False)
+    search_keyword = db.Column(db.String(255), nullable=False)
+    page_number = db.Column(db.Integer, nullable=True)
+    last_processed_url = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.String(50), default="running")
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "subdomain",
+            "search_keyword",
+            name="uq_scrape_state_subdomain_keyword",
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f"<ScrapeState {self.subdomain} "
+            f"{self.search_keyword} page={self.page_number}>"
+        )

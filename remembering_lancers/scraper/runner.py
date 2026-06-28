@@ -13,7 +13,7 @@ from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
 from ..extensions import db
-from ..models import DistinctObituary, Obituary
+from ..models import DistinctObituary, Obituary, ScrapeState
 from .locations import CITY_PROVINCE_MAPPING, extract_city_and_province
 from .parser import (
     extract_birth_and_death_dates_from_obituary,
@@ -93,6 +93,14 @@ def current_month_only_enabled():
 def get_target_city():
     city = os.environ.get("SCRAPER_CITY", "").strip().lower()
     return city or None
+
+
+def get_existing_url_stop_threshold():
+    try:
+        return max(1, int(os.environ.get("SCRAPER_EXISTING_URL_STOP_THRESHOLD", "3")))
+    except ValueError:
+        logging.warning("Invalid SCRAPER_EXISTING_URL_STOP_THRESHOLD; using 3.")
+        return 3
 
 
 def order_subdomains(subdomains):
@@ -258,7 +266,7 @@ def process_search_pagination(
                 )
                 return
 
-            yield current_page_urls
+            yield page, current_page_urls
 
             page += 1
             time.sleep(random.uniform(0.5, 1.5))
@@ -288,6 +296,69 @@ def obituary_url_exists(url):
     return Obituary.query.filter_by(obituary_url=url).first() is not None
 
 
+def get_or_create_scrape_state(subdomain, search_keyword):
+    state = ScrapeState.query.filter_by(
+        subdomain=subdomain,
+        search_keyword=search_keyword,
+    ).first()
+    if state:
+        return state
+
+    state = ScrapeState(
+        subdomain=subdomain,
+        search_keyword=search_keyword,
+        status="running",
+    )
+    db.session.add(state)
+    db.session.commit()
+    return state
+
+
+def update_scrape_state(state, page_number, obituary_url, status="running"):
+    state.page_number = page_number
+    state.last_processed_url = obituary_url
+    state.status = status
+    state.updated_at = datetime.now()
+    db.session.commit()
+
+
+def resume_page_urls(page_number, page_urls, state, subdomain):
+    if (
+        state.status != "running"
+        or state.page_number is None
+        or not state.last_processed_url
+    ):
+        return page_urls
+
+    if page_number < state.page_number:
+        logging.info(
+            "[%s] Resume state skipping previously processed page %s.",
+            subdomain.upper(),
+            page_number,
+        )
+        return []
+
+    if page_number != state.page_number:
+        return page_urls
+
+    if state.last_processed_url not in page_urls:
+        logging.info(
+            "[%s] Resume URL not found on page %s; processing full page.",
+            subdomain.upper(),
+            page_number,
+        )
+        return page_urls
+
+    resume_index = page_urls.index(state.last_processed_url) + 1
+    logging.info(
+        "[%s] Resuming page %s after URL: %s",
+        subdomain.upper(),
+        page_number,
+        state.last_processed_url,
+    )
+    return page_urls[resume_index:]
+
+
 def process_city(session, subdomain, stop_event):
     logging.info("\n%s\nProcessing city: %s\n%s", "=" * 50, subdomain.upper(), "=" * 50)
 
@@ -300,6 +371,10 @@ def process_city(session, subdomain, stop_event):
             if stop_event.is_set():
                 break
 
+            scrape_state = get_or_create_scrape_state(subdomain, search_keyword)
+            existing_url_count = 0
+            existing_url_stop_threshold = get_existing_url_stop_threshold()
+
             page_generator = process_search_pagination(
                 session,
                 subdomain,
@@ -309,13 +384,20 @@ def process_city(session, subdomain, stop_event):
                 stop_event,
             )
 
-            for page_urls in page_generator:
+            for page_number, page_urls in page_generator:
                 if stop_event.is_set():
                     logging.info(
                         "[%s] Stop event detected during page URL processing.",
                         subdomain.upper(),
                     )
                     break
+
+                page_urls = resume_page_urls(
+                    page_number,
+                    page_urls,
+                    scrape_state,
+                    subdomain,
+                )
 
                 for url in page_urls:
                     if stop_event.is_set():
@@ -334,12 +416,40 @@ def process_city(session, subdomain, stop_event):
                         continue
 
                     if obituary_url_exists(url):
+                        existing_url_count += 1
                         logging.info(
-                            "[%s] Existing obituary reached, stopping city: %s",
+                            (
+                                "[%s] Existing obituary reached %s/%s: %s"
+                            ),
                             subdomain.upper(),
+                            existing_url_count,
+                            existing_url_stop_threshold,
                             url,
                         )
-                        return
+                        update_scrape_state(
+                            scrape_state,
+                            page_number,
+                            url,
+                        )
+                        if existing_url_count >= existing_url_stop_threshold:
+                            logging.info(
+                                (
+                                    "[%s] Existing obituary reached, "
+                                    "stopping city: %s"
+                                ),
+                                subdomain.upper(),
+                                url,
+                            )
+                            update_scrape_state(
+                                scrape_state,
+                                page_number,
+                                url,
+                                status="completed",
+                            )
+                            return
+                        continue
+
+                    existing_url_count = 0
 
                     success = False
                     for attempt in range(3):
@@ -378,6 +488,7 @@ def process_city(session, subdomain, stop_event):
                             url,
                         )
 
+                    update_scrape_state(scrape_state, page_number, url)
                     time.sleep(random.uniform(0.7, 1.3))
 
     except Exception as exc:

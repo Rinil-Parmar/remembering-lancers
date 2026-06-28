@@ -284,6 +284,10 @@ def get_publication_date_and_soup(session, url):
         return None, soup_for_debug
 
 
+def obituary_url_exists(url):
+    return Obituary.query.filter_by(obituary_url=url).first() is not None
+
+
 def process_city(session, subdomain, stop_event):
     logging.info("\n%s\nProcessing city: %s\n%s", "=" * 50, subdomain.upper(), "=" * 50)
 
@@ -328,6 +332,14 @@ def process_city(session, subdomain, stop_event):
                             url,
                         )
                         continue
+
+                    if obituary_url_exists(url):
+                        logging.info(
+                            "[%s] Existing obituary reached, stopping city: %s",
+                            subdomain.upper(),
+                            url,
+                        )
+                        return
 
                     success = False
                     for attempt in range(3):

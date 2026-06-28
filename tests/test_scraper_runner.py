@@ -78,3 +78,36 @@ def test_process_obituary_allows_same_name_with_different_url(app, monkeypatch):
     assert Obituary.query.filter_by(name="Test Alumni").count() == 2
     assert DistinctObituary.query.filter_by(name="Test Alumni").count() == 2
     assert DistinctObituary.query.filter_by(obituary_url=new_url).count() == 1
+
+
+def test_process_city_stops_when_existing_obituary_url_is_reached(app, monkeypatch):
+    processed_urls = []
+    existing_url = "https://test.local/obituary/test-alumni-1"
+    later_url = "https://windsorstar.remembering.ca/obituary/newer-alumni"
+
+    def fake_process_search_pagination(
+        session,
+        subdomain,
+        search_keyword,
+        visited_search_pages,
+        visited_obituaries,
+        stop_event,
+    ):
+        yield [existing_url, later_url]
+
+    def fake_process_obituary(session, db_session, url, visited_obituaries, stop_event):
+        processed_urls.append(url)
+        return {"is_alumni": True}
+
+    monkeypatch.setattr(runner, "get_search_keywords", lambda: ["University of Windsor"])
+    monkeypatch.setattr(
+        runner,
+        "process_search_pagination",
+        fake_process_search_pagination,
+    )
+    monkeypatch.setattr(runner, "process_obituary", fake_process_obituary)
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    runner.process_city(FakeSession(""), "windsorstar", threading.Event())
+
+    assert processed_urls == []

@@ -152,15 +152,21 @@ def get_city_subdomains(session):
 
 
 def process_search_pagination(
-    session, subdomain, visited_search_pages, visited_obituaries, stop_event
+    session,
+    subdomain,
+    search_keyword,
+    visited_search_pages,
+    visited_obituaries,
+    stop_event,
 ):
     base_url = f"https://{subdomain}.{BASE_DOMAIN}"
     search_path = "/obituaries/all-categories/search"
     search_params = (
-        f"search_type=advanced&ap_search_keyword={quote_plus(SEARCH_KEYWORD)}"
+        f"search_type=advanced&ap_search_keyword={quote_plus(search_keyword)}"
         "&sort_by=date&order=desc"
     )
     search_url = f"{base_url}{search_path}?{search_params}"
+    logging.info("[%s] Searching keyword: %s", subdomain.upper(), search_keyword)
 
     page = 1
     max_pages = int(os.environ.get("SCRAPER_MAX_PAGES", "2"))
@@ -286,68 +292,81 @@ def process_city(session, subdomain, stop_event):
     visited_obituaries = set()
 
     try:
-        page_generator = process_search_pagination(
-            session, subdomain, visited_search_pages, visited_obituaries, stop_event
-        )
-
-        for page_urls in page_generator:
+        for search_keyword in get_search_keywords():
             if stop_event.is_set():
-                logging.info(
-                    "[%s] Stop event detected during page URL processing.",
-                    subdomain.upper(),
-                )
                 break
 
-            for url in page_urls:
+            page_generator = process_search_pagination(
+                session,
+                subdomain,
+                search_keyword,
+                visited_search_pages,
+                visited_obituaries,
+                stop_event,
+            )
+
+            for page_urls in page_generator:
                 if stop_event.is_set():
                     logging.info(
-                        "[%s] Stop event detected during obituary URL loop.",
+                        "[%s] Stop event detected during page URL processing.",
                         subdomain.upper(),
                     )
                     break
 
-                if url in visited_obituaries:
-                    logging.debug(
-                        "[%s] Obituary URL already visited: %s. Skipping.",
-                        subdomain.upper(),
-                        url,
-                    )
-                    continue
-
-                success = False
-                for attempt in range(3):
-                    try:
+                for url in page_urls:
+                    if stop_event.is_set():
                         logging.info(
-                            "[%s] Attempt %s to process obituary: %s",
+                            "[%s] Stop event detected during obituary URL loop.",
                             subdomain.upper(),
-                            attempt + 1,
-                            url,
                         )
-                        result = process_obituary(
-                            session, db.session, url, visited_obituaries, stop_event
-                        )
-                        if result and result["is_alumni"]:
-                            total_alumni += 1
-                        success = True
                         break
-                    except requests.exceptions.RequestException as exc:
-                        logging.warning(
-                            "[%s] Attempt %s failed for %s: %s",
+
+                    if url in visited_obituaries:
+                        logging.debug(
+                            "[%s] Obituary URL already visited: %s. Skipping.",
                             subdomain.upper(),
-                            attempt + 1,
                             url,
-                            exc,
                         )
-                        time.sleep(2**attempt)
+                        continue
 
-                if not success:
-                    logging.error(
-                        "[%s] Failed to process obituary after 3 attempts: %s",
-                        subdomain.upper(),
-                        url,
-                    )
+                    success = False
+                    for attempt in range(3):
+                        try:
+                            logging.info(
+                                "[%s] Attempt %s to process obituary: %s",
+                                subdomain.upper(),
+                                attempt + 1,
+                                url,
+                            )
+                            result = process_obituary(
+                                session,
+                                db.session,
+                                url,
+                                visited_obituaries,
+                                stop_event,
+                            )
+                            if result and result["is_alumni"]:
+                                total_alumni += 1
+                            success = True
+                            break
+                        except requests.exceptions.RequestException as exc:
+                            logging.warning(
+                                "[%s] Attempt %s failed for %s: %s",
+                                subdomain.upper(),
+                                attempt + 1,
+                                url,
+                                exc,
+                            )
+                            time.sleep(2**attempt)
 
-                time.sleep(random.uniform(0.7, 1.3))
+                    if not success:
+                        logging.error(
+                            "[%s] Failed to process obituary after 3 attempts: %s",
+                            subdomain.upper(),
+                            url,
+                        )
+
+                    time.sleep(random.uniform(0.7, 1.3))
 
     except Exception as exc:
         logging.error("[%s] Critical error processing city: %s", subdomain.upper(), exc)

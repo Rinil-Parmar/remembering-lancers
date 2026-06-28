@@ -86,6 +86,16 @@ def test_scraper_configuration_helpers_read_environment(monkeypatch):
     assert get_target_city() == "windsorstar"
 
 
+def test_get_search_keywords_defaults_when_env_missing(monkeypatch):
+    monkeypatch.delenv("SCRAPER_SEARCH_KEYWORDS", raising=False)
+
+    assert get_search_keywords() == [
+        "University of Windsor",
+        "UWindsor",
+        "Windsor University",
+    ]
+
+
 def test_current_month_only_enabled_defaults_to_true(monkeypatch):
     monkeypatch.delenv("SCRAPER_CURRENT_MONTH_ONLY", raising=False)
 

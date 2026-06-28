@@ -196,7 +196,9 @@ def process_search_pagination(
             if page == 1 and not first_page_processed:
                 first_obit_url = urljoin(base_url, obit_links[0]["href"])
                 pub_date_str, _ = get_publication_date_and_soup(session, first_obit_url)
-                if not is_current_month_and_year(pub_date_str):
+                if current_month_only_enabled() and not is_current_month_and_year(
+                    pub_date_str
+                ):
                     logging.info(
                         "[%s] First obituary is not current. Skipping city.",
                         subdomain.upper(),
@@ -227,9 +229,11 @@ def process_search_pagination(
 
             current_page_urls = []
             for item in obituary_data:
-                if is_current_month_and_year(item["pub_date"].strftime("%B %d, %Y")):
-                    current_page_urls.append(item["url"])
-                else:
+                pub_date_text = item["pub_date"].strftime("%B %d, %Y")
+
+                if current_month_only_enabled() and not is_current_month_and_year(
+                    pub_date_text
+                ):
                     logging.info(
                         "[%s] Non-current obituary found. Stopping city processing.",
                         subdomain.upper(),
@@ -238,9 +242,11 @@ def process_search_pagination(
                         yield current_page_urls
                     return
 
+                current_page_urls.append(item["url"])
+
             if not current_page_urls:
                 logging.info(
-                    "[%s] No current obituaries on page %s. Stopping.",
+                    "[%s] No matching obituaries on page %s. Stopping.",
                     subdomain.upper(),
                     page,
                 )

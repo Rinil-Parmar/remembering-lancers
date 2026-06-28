@@ -86,6 +86,24 @@ def test_scraper_configuration_helpers_read_environment(monkeypatch):
     assert get_target_city() == "windsorstar"
 
 
+def test_current_month_only_enabled_defaults_to_true(monkeypatch):
+    monkeypatch.delenv("SCRAPER_CURRENT_MONTH_ONLY", raising=False)
+
+    assert current_month_only_enabled() is True
+
+
+def test_current_month_only_enabled_accepts_truthy_values(monkeypatch):
+    for value in ["1", "true", "yes", "on"]:
+        monkeypatch.setenv("SCRAPER_CURRENT_MONTH_ONLY", value)
+        assert current_month_only_enabled() is True
+
+
+def test_current_month_only_enabled_accepts_false_values(monkeypatch):
+    for value in ["0", "false", "no", "off"]:
+        monkeypatch.setenv("SCRAPER_CURRENT_MONTH_ONLY", value)
+        assert current_month_only_enabled() is False
+
+
 def test_order_subdomains_prioritizes_windsor_and_nearby_locations(monkeypatch):
     monkeypatch.delenv("SCRAPER_CITY", raising=False)
 

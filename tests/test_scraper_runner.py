@@ -19,8 +19,18 @@ class FakeSession:
     def __init__(self, html):
         self.html = html
 
-    def get(self, url):
+    def get(self, url, **_kwargs):
         return FakeResponse(self.html)
+
+
+class MappingSession:
+    def __init__(self, responses):
+        self.responses = responses
+        self.calls = []
+
+    def get(self, url, timeout=None):
+        self.calls.append((url, timeout))
+        return FakeResponse(self.responses[url])
 
 
 def obituary_html(first_name="Test", last_name="ALUMNI", published_date="June 10, 2026"):
@@ -101,6 +111,46 @@ def test_extract_obituary_name_falls_back_to_page_title():
     )
 
     assert runner.extract_obituary_name(soup) == ("Alan George", "Wildeman")
+
+
+def test_process_search_pagination_deduplicates_page_links(monkeypatch):
+    base_url = "https://windsorstar.remembering.ca"
+    obit_url = f"{base_url}/obituary/test-alumni-1"
+    search_url = (
+        f"{base_url}/obituaries/all-categories/search"
+        "?search_type=advanced&ap_search_keyword=UWindsor&sort_by=date&order=desc"
+    )
+    session = MappingSession(
+        {
+            search_url: """
+                <a href="/obituary/test-alumni-1">One</a>
+                <a href="/obituary/test-alumni-1">Duplicate</a>
+            """,
+            obit_url: """
+                <div class="details-published">
+                    Published online June 10, 2026
+                </div>
+            """,
+        }
+    )
+
+    monkeypatch.setenv("SCRAPER_MAX_PAGES", "1")
+    monkeypatch.setenv("SCRAPER_CURRENT_MONTH_ONLY", "false")
+    monkeypatch.setenv("SCRAPER_REQUEST_TIMEOUT", "7")
+
+    pages = list(
+        runner.process_search_pagination(
+            session,
+            "windsorstar",
+            "UWindsor",
+            set(),
+            set(),
+            threading.Event(),
+        )
+    )
+
+    assert pages == [(1, [obit_url])]
+    assert session.calls.count((obit_url, 7)) == 1
 
 
 def test_process_obituary_skips_existing_obituary_url(app, monkeypatch):

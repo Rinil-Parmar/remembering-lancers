@@ -131,6 +131,8 @@ SCRAPER_MAX_PAGES=1
 SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University
 SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
 SCRAPER_RESUME_FROM_STATE=true
+SCRAPER_REQUEST_TIMEOUT=10
+SCRAPER_RETRY_TOTAL=3
 ```
 
 Generate a secure secret key:
@@ -266,6 +268,8 @@ SCRAPER_MAX_PAGES=3
 SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
 SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
 SCRAPER_RESUME_FROM_STATE=true
+SCRAPER_REQUEST_TIMEOUT=10
+SCRAPER_RETRY_TOTAL=3
 ```
 
 - `SCRAPER_CITY`: scrape only one Remembering.ca subdomain. Empty means scrape all configured locations, with Windsor and nearby Ontario locations first.
@@ -274,6 +278,8 @@ SCRAPER_RESUME_FROM_STATE=true
 - `SCRAPER_SEARCH_KEYWORDS`: comma-separated search terms used on Remembering.ca.
 - `SCRAPER_EXISTING_URL_STOP_THRESHOLD`: stop a city after this many consecutive already-saved obituary URLs.
 - `SCRAPER_RESUME_FROM_STATE`: when `true`, resume from the last URL stored in `scrape_state`. When `false`, ignore previous state and start from page 1.
+- `SCRAPER_REQUEST_TIMEOUT`: HTTP timeout in seconds for scraper requests.
+- `SCRAPER_RETRY_TOTAL`: retry count for temporary HTTP failures.
 
 The scraper stores resume progress in the `scrape_state` table. If stopped and started again, it resumes after the last processed URL for each city and search keyword.
 
@@ -299,6 +305,8 @@ SCRAPER_MAX_PAGES=3
 SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
 SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
 SCRAPER_RESUME_FROM_STATE=true
+SCRAPER_REQUEST_TIMEOUT=10
+SCRAPER_RETRY_TOTAL=3
 ```
 
 ### 3. Apply migrations

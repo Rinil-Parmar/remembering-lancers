@@ -24,6 +24,8 @@ from .parser import (
 
 
 BASE_DOMAIN = "remembering.ca"
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 10
+DEFAULT_RETRY_TOTAL = 3
 DEFAULT_SEARCH_KEYWORDS = [
     "University of Windsor",
     "UWindsor",
@@ -112,6 +114,33 @@ def get_existing_url_stop_threshold():
         return 3
 
 
+def get_request_timeout():
+    try:
+        return max(
+            1,
+            int(
+                os.environ.get(
+                    "SCRAPER_REQUEST_TIMEOUT",
+                    str(DEFAULT_REQUEST_TIMEOUT_SECONDS),
+                )
+            ),
+        )
+    except ValueError:
+        logging.warning("Invalid SCRAPER_REQUEST_TIMEOUT; using 10 seconds.")
+        return DEFAULT_REQUEST_TIMEOUT_SECONDS
+
+
+def get_retry_total():
+    try:
+        return max(
+            0,
+            int(os.environ.get("SCRAPER_RETRY_TOTAL", str(DEFAULT_RETRY_TOTAL))),
+        )
+    except ValueError:
+        logging.warning("Invalid SCRAPER_RETRY_TOTAL; using 3.")
+        return DEFAULT_RETRY_TOTAL
+
+
 def order_subdomains(subdomains):
     target_city = get_target_city()
     available_subdomains = list(dict.fromkeys(subdomains))
@@ -142,7 +171,11 @@ def order_subdomains(subdomains):
 
 def configure_session():
     session = requests.Session()
-    retries = Retry(total=100, backoff_factor=1, status_forcelist=[502, 503, 504])
+    retries = Retry(
+        total=get_retry_total(),
+        backoff_factor=1,
+        status_forcelist=[429, 502, 503, 504],
+    )
     session.mount("https://", HTTPAdapter(max_retries=retries))
     session.headers.update({"User-Agent": random.choice(USER_AGENTS)})
     return session
@@ -151,7 +184,10 @@ def configure_session():
 def get_city_subdomains(session):
     logging.info("Fetching city subdomains...")
     try:
-        response = session.get(f"https://www.{BASE_DOMAIN}/location")
+        response = session.get(
+            f"https://www.{BASE_DOMAIN}/location",
+            timeout=get_request_timeout(),
+        )
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -188,6 +224,7 @@ def process_search_pagination(
     page = 1
     max_pages = int(os.environ.get("SCRAPER_MAX_PAGES", "2"))
     first_page_processed = False
+    publication_date_cache = {}
 
     while page <= max_pages and not stop_event.is_set():
         logging.info("[%s] Pagination - Starting page %s", subdomain.upper(), page)
@@ -203,12 +240,17 @@ def process_search_pagination(
         visited_search_pages.add(current_url)
 
         try:
-            response = session.get(current_url)
+            response = session.get(current_url, timeout=get_request_timeout())
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
-            obit_links = soup.select('a[href^="/obituary/"]')
-            if not obit_links:
+            page_obituary_urls = list(
+                dict.fromkeys(
+                    urljoin(base_url, link["href"])
+                    for link in soup.select('a[href^="/obituary/"]')
+                )
+            )
+            if not page_obituary_urls:
                 logging.info(
                     "[%s] Page %s: No obituary links found, stopping pagination.",
                     subdomain.upper(),
@@ -217,8 +259,9 @@ def process_search_pagination(
                 break
 
             if page == 1 and not first_page_processed:
-                first_obit_url = urljoin(base_url, obit_links[0]["href"])
+                first_obit_url = page_obituary_urls[0]
                 pub_date_str, _ = get_publication_date_and_soup(session, first_obit_url)
+                publication_date_cache[first_obit_url] = pub_date_str
                 if current_month_only_enabled() and not is_current_month_and_year(
                     pub_date_str
                 ):
@@ -235,11 +278,13 @@ def process_search_pagination(
                 first_page_processed = True
 
             obituary_data = []
-            for link in obit_links:
-                url = urljoin(base_url, link["href"])
+            for url in page_obituary_urls:
                 if url in visited_obituaries:
                     continue
-                pub_date_str, _ = get_publication_date_and_soup(session, url)
+                pub_date_str = publication_date_cache.get(url)
+                if pub_date_str is None:
+                    pub_date_str, _ = get_publication_date_and_soup(session, url)
+                    publication_date_cache[url] = pub_date_str
                 if not pub_date_str:
                     continue
                 try:
@@ -300,7 +345,7 @@ def process_search_pagination(
 def get_publication_date_and_soup(session, url):
     soup_for_debug = None
     try:
-        response = session.get(url, timeout=10)
+        response = session.get(url, timeout=get_request_timeout())
         response.raise_for_status()
         soup_for_debug = BeautifulSoup(response.text, "html.parser")
         publication_date = get_publication_date_from_soup(soup_for_debug)
@@ -691,7 +736,7 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
     visited_obituaries.add(url)
 
     try:
-        response = session.get(url)
+        response = session.get(url, timeout=get_request_timeout())
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 

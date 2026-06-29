@@ -3,7 +3,7 @@ from .extensions import db
 
 class Obituary(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    tags = db.Column(db.String(50), default="new")
+    tags = db.Column(db.String(50), default="new", server_default="new")
     name = db.Column(db.String(255))
     first_name = db.Column(db.String(255))
     last_name = db.Column(db.String(255))
@@ -28,7 +28,7 @@ class DistinctObituary(db.Model):
     __tablename__ = "dist_obituary"
 
     id = db.Column(db.Integer, primary_key=True)
-    tags = db.Column(db.String(50), default="new")
+    tags = db.Column(db.String(50), default="new", server_default="new")
     name = db.Column(db.String(255))
     first_name = db.Column(db.String(255))
     last_name = db.Column(db.String(255))

@@ -12,6 +12,8 @@ from remembering_lancers.scraper.runner import (
     get_search_keywords,
     get_target_city,
     get_matching_alumni_keyword,
+    get_request_timeout,
+    get_retry_total,
     is_alumni_obituary,
     order_subdomains,
     resume_from_state_enabled,
@@ -134,6 +136,22 @@ def test_resume_from_state_enabled_accepts_false_values(monkeypatch):
     for value in ["0", "false", "no", "off"]:
         monkeypatch.setenv("SCRAPER_RESUME_FROM_STATE", value)
         assert resume_from_state_enabled() is False
+
+
+def test_request_timeout_defaults_and_reads_environment(monkeypatch):
+    monkeypatch.delenv("SCRAPER_REQUEST_TIMEOUT", raising=False)
+    assert get_request_timeout() == 10
+
+    monkeypatch.setenv("SCRAPER_REQUEST_TIMEOUT", "5")
+    assert get_request_timeout() == 5
+
+
+def test_retry_total_defaults_and_reads_environment(monkeypatch):
+    monkeypatch.delenv("SCRAPER_RETRY_TOTAL", raising=False)
+    assert get_retry_total() == 3
+
+    monkeypatch.setenv("SCRAPER_RETRY_TOTAL", "5")
+    assert get_retry_total() == 5
 
 
 def test_order_subdomains_prioritizes_windsor_and_nearby_locations(monkeypatch):

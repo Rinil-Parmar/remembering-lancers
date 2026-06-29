@@ -406,61 +406,10 @@
       }
 
       window.renderMapObituaries = renderMapObituaries;
-
       fetch("/get_obituaries")
         .then((response) => response.json())
-        .then((obituaries) => {
-          renderMapObituaries(obituaries);
-          return;
-          const locationGroups = {};
-
-          obituaries.forEach((obit) => {
-            if (obit.latitude && obit.longitude) {
-              const locationKey = `${obit.latitude},${obit.longitude}`;
-              if (!locationGroups[locationKey]) {
-                locationGroups[locationKey] = [];
-              }
-              locationGroups[locationKey].push(obit);
-            }
-          });
-
-          for (const locationKey in locationGroups) {
-            if (locationGroups.hasOwnProperty(locationKey)) {
-              const group = locationGroups[locationKey];
-              const [latitude, longitude] = locationKey.split(",").map(Number);
-              const count = group.length;
-
-              let popupContent = `
-                    <div class="leaflet-popup-content-wrapper">
-                        <div class="p-2 max-w-xs">
-                            <h3 class="font-bold text-lg text-center text-gray-900 mb-2">Obituaries (${count})</h3>
-                            <ul class="obituary-list">
-                            ${group
-                              .map(
-                                (obit) => `
-                                <li class="mb-4 border-b pb-2 last:border-b-0 last:mb-0">
-                                    <h4 class="font-semibold text-md text-gray-800">${obit.name}</h4>
-                                    <p class="text-sm text-gray-700">📍 <strong>${obit.city}, ${obit.province}</strong></p>
-                                    <p class="text-sm text-gray-600">📅 ${obit.death_date || "Unknown date"}</p>
-                                    <a href="/obituary/${obit.id}" class="text-blue-600 font-semibold hover:underline mt-1 block">
-                                        View Details →
-                                    </a>
-                                </li>`,
-                              )
-                              .join("")}
-                            </ul>
-                        </div>
-                    </div>
-                `;
-
-              const marker = L.marker([latitude, longitude], {
-                icon: createClusterIcon(count),
-              }).bindPopup(popupContent);
-
-              marker.addTo(map);
-            }
-          }
-        });
+        .then(renderMapObituaries)
+        .catch((error) => console.error("Error loading map obituaries:", error));
 
       const legend = L.control({ position: "bottomright" });
 

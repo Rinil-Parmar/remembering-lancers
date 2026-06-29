@@ -6,9 +6,6 @@ from datetime import datetime, timedelta
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from ..extensions import db
-from ..models import DistinctObituary, Obituary
-
 
 class ScraperService:
     def __init__(self, app):
@@ -33,12 +30,6 @@ class ScraperService:
                     "message": "Scraping is already running!",
                     **self.status(),
                 }, 400
-
-            db.session.query(Obituary).update({Obituary.tags: "updated"})
-            db.session.query(DistinctObituary).update(
-                {DistinctObituary.tags: "updated"}
-            )
-            db.session.commit()
 
             csv_export_path = self.app.config["CSV_EXPORT_PATH"]
             if os.path.exists(csv_export_path):

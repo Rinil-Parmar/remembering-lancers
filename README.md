@@ -1,5 +1,7 @@
 # Remembering Lancers
 
+[![CI](https://github.com/Rinil-Parmar/remembering-lancers/actions/workflows/ci.yml/badge.svg)](https://github.com/Rinil-Parmar/remembering-lancers/actions/workflows/ci.yml)
+
 Remembering Lancers is a Flask-based obituary scraping and management dashboard for identifying Remembering.ca obituary records that mention the University of Windsor. It stores alumni records in PostgreSQL and displays them through a searchable dashboard, CSV export, and location map.
 
 > This project is being upgraded from a student prototype into a production-ready application.

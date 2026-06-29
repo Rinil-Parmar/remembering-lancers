@@ -10,9 +10,11 @@ Remembering Lancers is a Flask-based obituary scraping and management dashboard 
 - Store data with Flask-SQLAlchemy and PostgreSQL
 - Start and stop the scraper from the dashboard
 - Detect University of Windsor alumni mentions
+- Resume scraper progress by city and search keyword
 - Export alumni records to CSV
 - Show obituary locations on a Leaflet map
 - Run with Flask locally or Waitress for a production-style WSGI server
+- Run with Docker Compose using Flask and PostgreSQL
 
 ## Tech Stack
 
@@ -35,6 +37,8 @@ Remembering Lancers is a Flask-based obituary scraping and management dashboard 
 remembering-lancers/
 ├── app.py                         # Local Flask development entrypoint
 ├── wsgi.py                        # Production-style WSGI entrypoint
+├── Dockerfile                     # Flask image definition
+├── docker-compose.yml             # Flask + PostgreSQL local stack
 ├── models.py                      # Compatibility wrapper for old imports
 ├── scrapper.py                    # Compatibility wrapper for old scraper imports
 ├── requirements.txt               # Runtime dependencies
@@ -44,7 +48,7 @@ remembering-lancers/
 │   ├── __init__.py                # Flask app factory
 │   ├── config.py                  # Environment-based configuration
 │   ├── extensions.py              # Flask extension instances
-│   ├── models.py                  # SQLAlchemy models
+│   ├── models.py                  # SQLAlchemy models and scraper state
 │   ├── api/                       # JSON API routes
 │   ├── web/                       # HTML page routes
 │   └── scraper/                   # Scraper routes, service, parser, runner
@@ -61,6 +65,7 @@ remembering-lancers/
 ```bash
 git clone https://github.com/Rinil-Parmar/remembering-lancers.git
 cd remembering-lancers
+git checkout test/scraper-logic
 ```
 
 ### 2. Create and activate a virtual environment
@@ -116,10 +121,15 @@ FLASK_APP=app.py
 FLASK_DEBUG=1
 SECRET_KEY=replace-with-a-secure-secret
 DATABASE_URL=postgresql://postgres:your-password@localhost:5432/remembering_lancers_dev
-SCRAPER_MAX_PAGES=1
 APP_ENV=development
 HOST=0.0.0.0
 PORT=8000
+LOG_LEVEL=INFO
+SCRAPER_CITY=
+SCRAPER_CURRENT_MONTH_ONLY=true
+SCRAPER_MAX_PAGES=1
+SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University
+SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
 ```
 
 Generate a secure secret key:
@@ -134,6 +144,14 @@ Create or update tables from the Alembic migration history:
 
 ```bash
 flask db upgrade
+```
+
+This creates or updates:
+
+```text
+obituary
+dist_obituary
+scrape_state
 ```
 
 ### 7. Run locally
@@ -170,7 +188,12 @@ wsgi:app
 
 ## Docker
 
-Build and run the Flask app with PostgreSQL:
+Docker runs two containers:
+
+- `web`: Flask app served by Waitress
+- `db`: PostgreSQL 17 database
+
+Build and run the full stack:
 
 ```bash
 docker compose up --build
@@ -188,6 +211,36 @@ Open:
 http://127.0.0.1:8000
 ```
 
+Stop containers while keeping database data:
+
+```bash
+docker compose down
+```
+
+Delete containers and database volume for a fresh Docker database:
+
+```bash
+docker compose down -v
+```
+
+Run migrations manually inside Docker if needed:
+
+```bash
+docker compose exec web flask db upgrade
+```
+
+Open the Docker PostgreSQL shell:
+
+```bash
+docker compose exec db psql -U postgres -d remembering_lancers
+```
+
+Check Docker logs:
+
+```bash
+docker compose logs -f web
+```
+
 For real deployment, change these Compose defaults before exposing the app:
 
 - `SECRET_KEY`
@@ -201,22 +254,151 @@ For real deployment, change these Compose defaults before exposing the app:
 python -m pytest
 ```
 
+## Scraper Configuration
+
+Important scraper environment variables:
+
+```env
+SCRAPER_CITY=windsorstar
+SCRAPER_CURRENT_MONTH_ONLY=false
+SCRAPER_MAX_PAGES=3
+SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
+SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+```
+
+- `SCRAPER_CITY`: scrape only one Remembering.ca subdomain. Empty means scrape all configured locations, with Windsor and nearby Ontario locations first.
+- `SCRAPER_CURRENT_MONTH_ONLY`: when `true`, skip older publication dates. For discovery/testing, use `false`.
+- `SCRAPER_MAX_PAGES`: maximum search result pages per city and keyword.
+- `SCRAPER_SEARCH_KEYWORDS`: comma-separated search terms used on Remembering.ca.
+- `SCRAPER_EXISTING_URL_STOP_THRESHOLD`: stop a city after this many consecutive already-saved obituary URLs.
+
+The scraper stores resume progress in the `scrape_state` table. If stopped and started again, it resumes after the last processed URL for each city and search keyword.
+
+## Manual Scraper Test Checklist
+
+Use this checklist when validating scraper behavior locally.
+
+### 1. Use the scraper branch
+
+```bash
+git checkout test/scraper-logic
+git pull
+```
+
+### 2. Configure a small Windsor-only run
+
+Update `.env`:
+
+```env
+SCRAPER_CITY=windsorstar
+SCRAPER_CURRENT_MONTH_ONLY=false
+SCRAPER_MAX_PAGES=3
+SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
+SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+```
+
+### 3. Apply migrations
+
+```bash
+flask db upgrade
+```
+
+### 4. Run the Flask app
+
+```bash
+flask run
+```
+
+Open:
+
+```text
+http://127.0.0.1:5000
+```
+
+Click **Start** on the dashboard.
+
+### 5. Expected logs
+
+You should see logs similar to:
+
+```text
+City scrape order: windsorstar
+[WINDSORSTAR] Searching keyword: University of Windsor
+[WINDSORSTAR] Pagination - Starting page 1
+[WINDSORSTAR] Processing obituary URL: ...
+[WINDSORSTAR] Publication date for obituary url=...
+[WINDSORSTAR] Obituary content extracted with selector: ...
+[WINDSORSTAR] Alumni keyword matched: ...
+[WINDSORSTAR] Alumni obituary saved: obituary_id=...
+```
+
+For non-matches:
+
+```text
+Obituary skipped as non-alumni, no alumni keyword matched
+```
+
+For already-scraped records:
+
+```text
+Existing obituary reached 1/3
+Existing obituary reached 2/3
+Existing obituary reached 3/3, stopping city
+```
+
+### 6. Check database counts
+
+Git Bash:
+
+```bash
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT COUNT(*) FROM obituary;"
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT COUNT(*) FROM dist_obituary;"
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT COUNT(*) FROM scrape_state;"
+```
+
+### 7. Check latest scraped records
+
+```bash
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT id, name, city, province, tags, publication_date, obituary_url FROM obituary ORDER BY id DESC LIMIT 10;"
+```
+
+### 8. Check scraper resume state
+
+```bash
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT subdomain, search_keyword, page_number, last_processed_url, status, updated_at FROM scrape_state ORDER BY updated_at DESC;"
+```
+
+### 9. Reset scraper resume state if needed
+
+Only reset state when you intentionally want scraper to start from the beginning again:
+
+```bash
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "DELETE FROM scrape_state;"
+```
+
+To clear all scraper data and state:
+
+```bash
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "TRUNCATE TABLE obituary, dist_obituary, scrape_state RESTART IDENTITY;"
+```
+
 ## Scraper Safety
 
 Keep local scraper runs small while testing:
 
 ```env
+SCRAPER_CITY=windsorstar
 SCRAPER_MAX_PAGES=1
 ```
 
-Increase this only after validating scraper behavior and respecting the source site's terms, rate limits, and robots policy.
+Increase page count only after validating scraper behavior and respecting the source site's terms, rate limits, and robots policy.
 
 ## Current Production Gaps
 
-- Scraper network logic needs stronger mocked tests
+- Scraper network logic should be broadened with more mocked edge-case tests
 - Authentication and authorization are not implemented
 - Scraping should eventually run as a separate worker for production
-- Production logging and monitoring still need setup
+- Production monitoring still needs setup
 
 ## Data and Privacy
 

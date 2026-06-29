@@ -361,32 +361,37 @@
           markerBounds.push([latitude, longitude]);
 
           const popupContent = `
-                <div class="leaflet-popup-content-wrapper">
-                    <div class="p-2 max-w-xs">
-                        <h3 class="font-bold text-lg text-center text-gray-900 mb-2">Obituaries (${count})</h3>
-                        <ul class="obituary-list">
-                        ${group
-                          .map(
-                            (obit) => `
-                            <li class="mb-4 border-b pb-2 last:border-b-0 last:mb-0">
-                                <h4 class="font-semibold text-md text-gray-800">${escapeHtml(obit.name || "Unknown")}</h4>
-                                <p class="text-sm text-gray-700"><strong>${escapeHtml(obit.city || "Unknown")}, ${escapeHtml(obit.province || "Unknown")}</strong></p>
-                                <p class="text-sm text-gray-600">${escapeHtml(obit.death_date || "Unknown date")}</p>
-                                <a href="/obituary/${encodeURIComponent(obit.id)}" class="text-blue-600 font-semibold hover:underline mt-1 block">
-                                    View Details
-                                </a>
-                            </li>`,
-                          )
-                          .join("")}
-                        </ul>
+                <div class="map-popup-card">
+                    <div class="map-popup-header">
+                        <span>Obituaries</span>
+                        <span class="map-popup-count">${count}</span>
                     </div>
+                    <ul class="map-popup-list">
+                    ${group
+                      .map(
+                        (obit) => `
+                        <li class="map-popup-item">
+                            <div class="map-popup-name">${escapeHtml(obit.name || "Unknown")}</div>
+                            <div class="map-popup-location">${escapeHtml(obit.city || "Unknown")}, ${escapeHtml(obit.province || "Unknown")}</div>
+                            <div class="map-popup-date">${escapeHtml(obit.death_date || "Unknown date")}</div>
+                            <a href="/obituary/${encodeURIComponent(obit.id)}" class="map-popup-link">
+                                View details
+                            </a>
+                        </li>`,
+                      )
+                      .join("")}
+                    </ul>
                 </div>
             `;
 
           L.marker([latitude, longitude], {
             icon: createClusterIcon(count),
           })
-            .bindPopup(popupContent)
+            .bindPopup(popupContent, {
+              className: "obituary-map-popup",
+              maxWidth: 360,
+              minWidth: 300,
+            })
             .addTo(obituaryMarkerLayer);
         });
 

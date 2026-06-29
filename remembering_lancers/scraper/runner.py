@@ -521,6 +521,29 @@ def is_alumni_obituary(content_text):
     )
 
 
+def extract_obituary_content(soup, subdomain, url):
+    selectors = [
+        "span.details-copy",
+        ".details-copy",
+        "article",
+        "main",
+    ]
+
+    for selector in selectors:
+        content = soup.select_one(selector)
+        content_text = extract_text(content)
+        if content_text and content_text != "N/A":
+            logging.info(
+                "[%s] Obituary content extracted with selector: %s",
+                subdomain,
+                selector,
+            )
+            return content_text
+
+    logging.warning("[%s] Obituary content missing for URL: %s", subdomain, url)
+    return ""
+
+
 def build_obituary_payload(
     url,
     first_name,
@@ -591,8 +614,7 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
         first_name = extract_text(obit_name_tag).replace(extract_text(last_name_tag), "")
         first_name = first_name.strip()
 
-        content = soup.select_one("span.details-copy")
-        content_text = extract_text(content)
+        content_text = extract_obituary_content(soup, subdomain, url)
         alumni = is_alumni_obituary(content_text)
 
         publication_date_str = get_publication_date_from_soup(soup)

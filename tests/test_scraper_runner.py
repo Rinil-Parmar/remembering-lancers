@@ -1,5 +1,7 @@
 import threading
 
+from bs4 import BeautifulSoup
+
 from remembering_lancers.extensions import db
 from remembering_lancers.models import DistinctObituary, Obituary, ScrapeState
 from remembering_lancers.scraper import runner
@@ -41,6 +43,42 @@ def obituary_html(first_name="Test", last_name="ALUMNI"):
       </body>
     </html>
     """
+
+
+def test_extract_obituary_content_uses_details_copy():
+    soup = BeautifulSoup(
+        '<span class="details-copy">University of Windsor graduate.</span>',
+        "html.parser",
+    )
+
+    assert runner.extract_obituary_content(
+        soup,
+        "WINDSORSTAR",
+        "https://example.test/obituary/1",
+    ) == "University of Windsor graduate."
+
+
+def test_extract_obituary_content_falls_back_to_article():
+    soup = BeautifulSoup(
+        "<article>UWindsor graduate and community member.</article>",
+        "html.parser",
+    )
+
+    assert runner.extract_obituary_content(
+        soup,
+        "WINDSORSTAR",
+        "https://example.test/obituary/1",
+    ) == "UWindsor graduate and community member."
+
+
+def test_extract_obituary_content_returns_empty_when_missing():
+    soup = BeautifulSoup("<html><body></body></html>", "html.parser")
+
+    assert runner.extract_obituary_content(
+        soup,
+        "WINDSORSTAR",
+        "https://example.test/obituary/1",
+    ) == ""
 
 
 def test_process_obituary_skips_existing_obituary_url(app, monkeypatch):

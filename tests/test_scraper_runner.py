@@ -23,7 +23,7 @@ class FakeSession:
         return FakeResponse(self.html)
 
 
-def obituary_html(first_name="Test", last_name="ALUMNI"):
+def obituary_html(first_name="Test", last_name="ALUMNI", published_date="June 10, 2026"):
     return f"""
     <html>
       <body>
@@ -34,7 +34,7 @@ def obituary_html(first_name="Test", last_name="ALUMNI"):
           <span>June 01, 2026</span>
         </h2>
         <div class="details-published">
-          <p>Published online June 10, 2026</p>
+          <p>Published online {published_date}</p>
         </div>
         <span class="details-copy">
           Proud graduate of the University of Windsor.
@@ -138,6 +138,27 @@ def test_process_obituary_allows_same_name_with_different_url(app, monkeypatch):
     assert Obituary.query.filter_by(name="Test Alumni").count() == 2
     assert DistinctObituary.query.filter_by(name="Test Alumni").count() == 2
     assert DistinctObituary.query.filter_by(obituary_url=new_url).count() == 1
+
+
+def test_newly_scraped_obituary_is_tagged_new_even_when_old_publication_date(
+    app,
+    monkeypatch,
+):
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(runner, "get_coordinates", lambda city, province: (1.0, 2.0))
+
+    new_url = "https://windsorstar.remembering.ca/obituary/old-alumni-1"
+    result = runner.process_obituary(
+        FakeSession(obituary_html(published_date="January 10, 2025")),
+        db.session,
+        new_url,
+        set(),
+        threading.Event(),
+    )
+
+    assert result["tags"] == "new"
+    assert Obituary.query.filter_by(obituary_url=new_url).first().tags == "new"
+    assert DistinctObituary.query.filter_by(obituary_url=new_url).first().tags == "new"
 
 
 def test_process_city_stops_when_existing_obituary_url_is_reached(app, monkeypatch):

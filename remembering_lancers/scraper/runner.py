@@ -707,12 +707,7 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
             logging.error("[%s] Failed to parse publication date: %s", subdomain, exc)
             publication_date = None
 
-        current_month_year = datetime.now().strftime("%B %Y")
-        try:
-            pub_month_year = publication_date.strftime("%B %Y")
-            tags = "new" if pub_month_year == current_month_year else "updated"
-        except Exception:
-            tags = "updated"
+        tags = "new"
 
         if not alumni:
             logging.info(

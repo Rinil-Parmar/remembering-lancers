@@ -560,6 +560,69 @@ def extract_obituary_content(soup, subdomain, url):
     return ""
 
 
+def clean_obituary_name(name_text):
+    if not name_text:
+        return ""
+
+    cleaned_name = " ".join(name_text.split())
+    for suffix in (" Obituary", " obituary"):
+        if cleaned_name.endswith(suffix):
+            cleaned_name = cleaned_name[: -len(suffix)]
+    return cleaned_name.strip()
+
+
+def split_obituary_name(full_name):
+    cleaned_name = clean_obituary_name(full_name)
+    name_parts = cleaned_name.split()
+
+    if len(name_parts) < 2:
+        return None, None
+
+    return " ".join(name_parts[:-1]), name_parts[-1].capitalize()
+
+
+def extract_obituary_name(soup):
+    old_name_tag = soup.find("h1", class_="obit-name")
+    old_last_name_tag = soup.find("span", class_="obit-lastname-upper")
+    if old_name_tag and old_last_name_tag:
+        raw_full_name = extract_text(old_name_tag)
+        raw_last_name = extract_text(old_last_name_tag)
+        first_name = raw_full_name.replace(raw_last_name, "").strip()
+        last_name = raw_last_name.capitalize()
+        if first_name and last_name:
+            return first_name, last_name
+
+    selectors = [
+        '[data-testid="desktop-menu-fullname"]',
+        '[data-testid="mobile-menu-fullname"]',
+        '[data-testid="main-fullname"]',
+        "h1",
+    ]
+    for selector in selectors:
+        element = soup.select_one(selector)
+        first_name, last_name = split_obituary_name(extract_text(element))
+        if first_name and last_name:
+            return first_name, last_name
+
+    meta_selectors = [
+        ('meta[property="og:title"]', "content"),
+        ('meta[name="twitter:title"]', "content"),
+        ("title", None),
+    ]
+    for selector, attribute in meta_selectors:
+        element = soup.select_one(selector)
+        if not element:
+            continue
+
+        raw_value = element.get(attribute, "") if attribute else element.get_text()
+        title_name = raw_value.split(" Obituary", 1)[0]
+        first_name, last_name = split_obituary_name(title_name)
+        if first_name and last_name:
+            return first_name, last_name
+
+    return None, None
+
+
 def build_obituary_payload(
     url,
     first_name,
@@ -616,19 +679,14 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
-        obit_name_tag = soup.find("h1", class_="obit-name")
-        last_name_tag = soup.find("span", class_="obit-lastname-upper")
-        if not obit_name_tag or not last_name_tag:
+        first_name, last_name = extract_obituary_name(soup)
+        if not first_name or not last_name:
             logging.warning(
                 "[%s] Could not find name components for obituary: %s. Skipping.",
                 subdomain,
                 url,
             )
             return None
-
-        last_name = extract_text(last_name_tag).capitalize()
-        first_name = extract_text(obit_name_tag).replace(extract_text(last_name_tag), "")
-        first_name = first_name.strip()
 
         content_text = extract_obituary_content(soup, subdomain, url)
         matched_alumni_keyword = get_matching_alumni_keyword(content_text)

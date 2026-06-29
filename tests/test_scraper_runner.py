@@ -81,6 +81,28 @@ def test_extract_obituary_content_returns_empty_when_missing():
     ) == ""
 
 
+def test_extract_obituary_name_uses_current_data_testid_markup():
+    soup = BeautifulSoup(
+        """
+        <h1 data-testid="desktop-menu-fullname">Alan George Wildeman</h1>
+        """,
+        "html.parser",
+    )
+
+    assert runner.extract_obituary_name(soup) == ("Alan George", "Wildeman")
+
+
+def test_extract_obituary_name_falls_back_to_page_title():
+    soup = BeautifulSoup(
+        """
+        <title>Alan George Wildeman Obituary | 1953 - 2026 | Windsor Star</title>
+        """,
+        "html.parser",
+    )
+
+    assert runner.extract_obituary_name(soup) == ("Alan George", "Wildeman")
+
+
 def test_process_obituary_skips_existing_obituary_url(app, monkeypatch):
     monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(runner, "get_coordinates", lambda city, province: (1.0, 2.0))

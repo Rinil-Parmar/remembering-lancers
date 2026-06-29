@@ -183,7 +183,7 @@
           </p>
           <div class="mt-3 text-center">
             <a
-              href="{{ url_for('download_csv') }}"
+              href="{{ url_for('web.download_csv') }}"
               class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
             >
               ⬇ Download CSV
@@ -325,58 +325,91 @@
         });
       }
 
+      const obituaryMarkerLayer = L.layerGroup().addTo(map);
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function renderMapObituaries(obituaries) {
+        obituaryMarkerLayer.clearLayers();
+        const locationGroups = {};
+
+        obituaries.forEach((obit) => {
+          const latitude = Number(obit.latitude);
+          const longitude = Number(obit.longitude);
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            return;
+          }
+
+          const locationKey = `${latitude},${longitude}`;
+          if (!locationGroups[locationKey]) {
+            locationGroups[locationKey] = [];
+          }
+          locationGroups[locationKey].push(obit);
+        });
+
+        const markerBounds = [];
+        Object.entries(locationGroups).forEach(([locationKey, group]) => {
+          const [latitude, longitude] = locationKey.split(",").map(Number);
+          const count = group.length;
+          markerBounds.push([latitude, longitude]);
+
+          const popupContent = `
+                <div class="map-popup-card">
+                    <div class="map-popup-header">
+                        <span>Obituaries</span>
+                        <span class="map-popup-count">${count}</span>
+                    </div>
+                    <ul class="map-popup-list">
+                    ${group
+                      .map(
+                        (obit) => `
+                        <li class="map-popup-item">
+                            <div class="map-popup-name">${escapeHtml(obit.name || "Unknown")}</div>
+                            <div class="map-popup-location">${escapeHtml(obit.city || "Unknown")}, ${escapeHtml(obit.province || "Unknown")}</div>
+                            <div class="map-popup-date">${escapeHtml(obit.death_date || "Unknown date")}</div>
+                            <a href="/obituary/${encodeURIComponent(obit.id)}" class="map-popup-link">
+                                View details
+                            </a>
+                        </li>`,
+                      )
+                      .join("")}
+                    </ul>
+                </div>
+            `;
+
+          L.marker([latitude, longitude], {
+            icon: createClusterIcon(count),
+          })
+            .bindPopup(popupContent, {
+              className: "obituary-map-popup",
+              maxWidth: 360,
+              minWidth: 300,
+            })
+            .addTo(obituaryMarkerLayer);
+        });
+
+        if (markerBounds.length > 0) {
+          map.fitBounds(markerBounds, {
+            padding: [40, 40],
+            maxZoom: 8,
+          });
+        } else {
+          map.setView([56.13, -106.346], 5);
+        }
+      }
+
+      window.renderMapObituaries = renderMapObituaries;
       fetch("/get_obituaries")
         .then((response) => response.json())
-        .then((obituaries) => {
-          const locationGroups = {};
-
-          obituaries.forEach((obit) => {
-            if (obit.latitude && obit.longitude) {
-              const locationKey = `${obit.latitude},${obit.longitude}`;
-              if (!locationGroups[locationKey]) {
-                locationGroups[locationKey] = [];
-              }
-              locationGroups[locationKey].push(obit);
-            }
-          });
-
-          for (const locationKey in locationGroups) {
-            if (locationGroups.hasOwnProperty(locationKey)) {
-              const group = locationGroups[locationKey];
-              const [latitude, longitude] = locationKey.split(",").map(Number);
-              const count = group.length;
-
-              let popupContent = `
-                    <div class="leaflet-popup-content-wrapper">
-                        <div class="p-2 max-w-xs">
-                            <h3 class="font-bold text-lg text-center text-gray-900 mb-2">Obituaries (${count})</h3>
-                            <ul class="obituary-list">
-                            ${group
-                              .map(
-                                (obit) => `
-                                <li class="mb-4 border-b pb-2 last:border-b-0 last:mb-0">
-                                    <h4 class="font-semibold text-md text-gray-800">${obit.name}</h4>
-                                    <p class="text-sm text-gray-700">📍 <strong>${obit.city}, ${obit.province}</strong></p>
-                                    <p class="text-sm text-gray-600">📅 ${obit.death_date || "Unknown date"}</p>
-                                    <a href="/obituary/${obit.id}" class="text-blue-600 font-semibold hover:underline mt-1 block">
-                                        View Details →
-                                    </a>
-                                </li>`,
-                              )
-                              .join("")}
-                            </ul>
-                        </div>
-                    </div>
-                `;
-
-              const marker = L.marker([latitude, longitude], {
-                icon: createClusterIcon(count),
-              }).bindPopup(popupContent);
-
-              marker.addTo(map);
-            }
-          }
-        });
+        .then(renderMapObituaries)
+        .catch((error) => console.error("Error loading map obituaries:", error));
 
       const legend = L.control({ position: "bottomright" });
 

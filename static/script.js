@@ -180,6 +180,9 @@ function applyFilters() {
         document.getElementById("noNewEntries").classList.add("hidden"); // Hide no entries message
         renderYearAccordion(data); // Render accordion with filtered data, now YEAR accordion
       }
+      if (window.renderMapObituaries) {
+        window.renderMapObituaries(data);
+      }
     })
     .catch((error) => {
       console.error("Search error:", error);
@@ -205,6 +208,9 @@ function refreshObituaries() {
       } else {
         document.getElementById("noNewEntries").classList.add("hidden");
         renderYearAccordion(data); // Call function to render YEAR accordion
+      }
+      if (window.renderMapObituaries) {
+        window.renderMapObituaries(data);
       }
     })
     .catch((error) => {

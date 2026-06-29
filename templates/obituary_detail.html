@@ -78,7 +78,15 @@
         <div class="mb-4">
             <section class="p-4 border rounded-lg shadow-sm">
                 <h3 class="font-semibold text-lg text-gray-700 mb-2"><i class="fas fa-users mr-2"></i> Family Information</h3>
-                <p class="text-gray-800">{{ obituary.family_information or 'N/A' }}</p>
+                {% if family_paragraphs %}
+                    <div class="prose-content text-gray-800">
+                        {% for paragraph in family_paragraphs %}
+                            <p>{{ paragraph }}</p>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-gray-500 italic">No family information available.</p>
+                {% endif %}
             </section>
         </div>
 
@@ -86,7 +94,15 @@
         <div class="mb-4">
             <section class="p-4 border rounded-lg shadow-sm">
                 <h3 class="font-semibold text-lg text-gray-700 mb-2"><i class="fas fa-hand-holding-heart mr-2"></i> Donation Information</h3>
-                <p class="text-gray-800">{{ obituary.donation_information or 'N/A' }}</p>
+                {% if donation_items %}
+                    <ul class="donation-list text-gray-800">
+                        {% for item in donation_items %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-gray-500 italic">No donation information available.</p>
+                {% endif %}
             </section>
         </div>
 

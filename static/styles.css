@@ -342,4 +342,33 @@
     color: #075985;
     text-decoration: underline;
 }
+
+.prose-content {
+    max-width: 100%;
+    font-size: 1rem;
+    line-height: 1.8;
+}
+
+.prose-content p {
+    margin: 0 0 1rem;
+}
+
+.prose-content p:last-child {
+    margin-bottom: 0;
+}
+
+.donation-list {
+    margin: 0;
+    padding-left: 1.25rem;
+    line-height: 1.7;
+}
+
+.donation-list li {
+    margin-bottom: 0.75rem;
+    padding-left: 0.25rem;
+}
+
+.donation-list li:last-child {
+    margin-bottom: 0;
+}
 /* Add more custom styles as needed */

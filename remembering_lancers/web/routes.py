@@ -12,6 +12,7 @@ from flask import (
 from sqlalchemy import func
 
 from . import web_bp
+from .formatting import split_donation_items, split_obituary_paragraphs
 from ..extensions import db
 from ..models import DistinctObituary, Obituary
 
@@ -44,7 +45,17 @@ def dashboard():
 @web_bp.route("/obituary/<int:obituary_id>")
 def obituary_detail(obituary_id):
     obituary = db.get_or_404(DistinctObituary, obituary_id)
-    return render_template("obituary_detail.html", obituary=obituary)
+    family_paragraphs = split_obituary_paragraphs(
+        obituary.family_information,
+        obituary.name,
+    )
+    donation_items = split_donation_items(obituary.donation_information)
+    return render_template(
+        "obituary_detail.html",
+        obituary=obituary,
+        family_paragraphs=family_paragraphs,
+        donation_items=donation_items,
+    )
 
 
 @web_bp.route("/about")

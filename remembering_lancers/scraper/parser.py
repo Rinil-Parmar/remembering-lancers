@@ -84,7 +84,7 @@ def extract_birth_and_death_dates_from_obituary(text):
 
 
 def extract_text(tag):
-    return tag.get_text(strip=True) if tag else "N/A"
+    return tag.get_text(" ", strip=True) if tag else "N/A"
 
 
 def get_publication_date_from_soup(soup):

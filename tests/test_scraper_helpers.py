@@ -14,6 +14,7 @@ from remembering_lancers.scraper.runner import (
     get_matching_alumni_keyword,
     is_alumni_obituary,
     order_subdomains,
+    resume_from_state_enabled,
 )
 
 
@@ -121,6 +122,18 @@ def test_current_month_only_enabled_accepts_false_values(monkeypatch):
     for value in ["0", "false", "no", "off"]:
         monkeypatch.setenv("SCRAPER_CURRENT_MONTH_ONLY", value)
         assert current_month_only_enabled() is False
+
+
+def test_resume_from_state_enabled_defaults_to_true(monkeypatch):
+    monkeypatch.delenv("SCRAPER_RESUME_FROM_STATE", raising=False)
+
+    assert resume_from_state_enabled() is True
+
+
+def test_resume_from_state_enabled_accepts_false_values(monkeypatch):
+    for value in ["0", "false", "no", "off"]:
+        monkeypatch.setenv("SCRAPER_RESUME_FROM_STATE", value)
+        assert resume_from_state_enabled() is False
 
 
 def test_order_subdomains_prioritizes_windsor_and_nearby_locations(monkeypatch):

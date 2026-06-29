@@ -90,6 +90,15 @@ def current_month_only_enabled():
     }
 
 
+def resume_from_state_enabled():
+    return os.environ.get("SCRAPER_RESUME_FROM_STATE", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def get_target_city():
     city = os.environ.get("SCRAPER_CITY", "").strip().lower()
     return city or None
@@ -381,7 +390,13 @@ def process_city(session, subdomain, stop_event):
             if stop_event.is_set():
                 break
 
+            resume_enabled = resume_from_state_enabled()
             scrape_state = get_or_create_scrape_state(subdomain, search_keyword)
+            if not resume_enabled:
+                logging.info(
+                    "[%s] SCRAPER_RESUME_FROM_STATE=false; starting from page 1.",
+                    subdomain.upper(),
+                )
             existing_url_count = 0
             existing_url_stop_threshold = get_existing_url_stop_threshold()
 
@@ -402,12 +417,13 @@ def process_city(session, subdomain, stop_event):
                     )
                     break
 
-                page_urls = resume_page_urls(
-                    page_number,
-                    page_urls,
-                    scrape_state,
-                    subdomain,
-                )
+                if resume_enabled:
+                    page_urls = resume_page_urls(
+                        page_number,
+                        page_urls,
+                        scrape_state,
+                        subdomain,
+                    )
 
                 for url in page_urls:
                     if stop_event.is_set():

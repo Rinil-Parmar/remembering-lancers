@@ -239,3 +239,49 @@ def test_process_city_resumes_after_last_processed_url(app, monkeypatch):
     runner.process_city(FakeSession(""), "windsorstar", threading.Event())
 
     assert processed_urls == [next_url]
+
+
+def test_process_city_ignores_previous_state_when_resume_disabled(app, monkeypatch):
+    processed_urls = []
+    previous_url = "https://windsorstar.remembering.ca/obituary/previous-alumni"
+    next_url = "https://windsorstar.remembering.ca/obituary/next-alumni"
+
+    db.session.add(
+        ScrapeState(
+            subdomain="windsorstar",
+            search_keyword="University of Windsor",
+            page_number=1,
+            last_processed_url=previous_url,
+            status="running",
+        )
+    )
+    db.session.commit()
+
+    def fake_process_search_pagination(
+        session,
+        subdomain,
+        search_keyword,
+        visited_search_pages,
+        visited_obituaries,
+        stop_event,
+    ):
+        yield 1, [previous_url, next_url]
+
+    def fake_process_obituary(session, db_session, url, visited_obituaries, stop_event):
+        processed_urls.append(url)
+        return {"is_alumni": True}
+
+    monkeypatch.setenv("SCRAPER_RESUME_FROM_STATE", "false")
+    monkeypatch.setattr(runner, "get_search_keywords", lambda: ["University of Windsor"])
+    monkeypatch.setattr(runner, "obituary_url_exists", lambda _url: False)
+    monkeypatch.setattr(
+        runner,
+        "process_search_pagination",
+        fake_process_search_pagination,
+    )
+    monkeypatch.setattr(runner, "process_obituary", fake_process_obituary)
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    runner.process_city(FakeSession(""), "windsorstar", threading.Event())
+
+    assert processed_urls == [previous_url, next_url]

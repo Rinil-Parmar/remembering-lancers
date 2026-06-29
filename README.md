@@ -130,6 +130,7 @@ SCRAPER_CURRENT_MONTH_ONLY=true
 SCRAPER_MAX_PAGES=1
 SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University
 SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+SCRAPER_RESUME_FROM_STATE=true
 ```
 
 Generate a secure secret key:
@@ -264,6 +265,7 @@ SCRAPER_CURRENT_MONTH_ONLY=false
 SCRAPER_MAX_PAGES=3
 SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
 SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+SCRAPER_RESUME_FROM_STATE=true
 ```
 
 - `SCRAPER_CITY`: scrape only one Remembering.ca subdomain. Empty means scrape all configured locations, with Windsor and nearby Ontario locations first.
@@ -271,6 +273,7 @@ SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
 - `SCRAPER_MAX_PAGES`: maximum search result pages per city and keyword.
 - `SCRAPER_SEARCH_KEYWORDS`: comma-separated search terms used on Remembering.ca.
 - `SCRAPER_EXISTING_URL_STOP_THRESHOLD`: stop a city after this many consecutive already-saved obituary URLs.
+- `SCRAPER_RESUME_FROM_STATE`: when `true`, resume from the last URL stored in `scrape_state`. When `false`, ignore previous state and start from page 1.
 
 The scraper stores resume progress in the `scrape_state` table. If stopped and started again, it resumes after the last processed URL for each city and search keyword.
 
@@ -295,6 +298,7 @@ SCRAPER_CURRENT_MONTH_ONLY=false
 SCRAPER_MAX_PAGES=3
 SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
 SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+SCRAPER_RESUME_FROM_STATE=true
 ```
 
 ### 3. Apply migrations
@@ -375,6 +379,14 @@ Only reset state when you intentionally want scraper to start from the beginning
 ```bash
 "/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "DELETE FROM scrape_state;"
 ```
+
+You can also start from page 1 without deleting the state table by setting:
+
+```env
+SCRAPER_RESUME_FROM_STATE=false
+```
+
+The scraper will still update `scrape_state` during the run; it only ignores previous state at startup.
 
 To clear all scraper data and state:
 

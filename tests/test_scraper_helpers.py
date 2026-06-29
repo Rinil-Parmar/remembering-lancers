@@ -11,6 +11,7 @@ from remembering_lancers.scraper.runner import (
     current_month_only_enabled,
     get_search_keywords,
     get_target_city,
+    get_matching_alumni_keyword,
     is_alumni_obituary,
     order_subdomains,
 )
@@ -74,6 +75,14 @@ def test_alumni_detection_is_case_insensitive():
     assert is_alumni_obituary("A proud graduate of the university of windsor.")
     assert is_alumni_obituary("He loved UWindsor and the local community.")
     assert not is_alumni_obituary("A long-time Windsor resident.")
+
+
+def test_matching_alumni_keyword_returns_keyword():
+    assert (
+        get_matching_alumni_keyword("A proud graduate of the university of windsor.")
+        == "University of Windsor"
+    )
+    assert get_matching_alumni_keyword("A long-time Windsor resident.") is None
 
 
 def test_scraper_configuration_helpers_read_environment(monkeypatch):

@@ -214,8 +214,13 @@ def process_search_pagination(
                     pub_date_str
                 ):
                     logging.info(
-                        "[%s] First obituary is not current. Skipping city.",
+                        (
+                            "[%s] First obituary is not current. "
+                            "Skipping city. url=%s publication_date=%s"
+                        ),
                         subdomain.upper(),
+                        first_obit_url,
+                        pub_date_str,
                     )
                     return
                 first_page_processed = True
@@ -249,11 +254,16 @@ def process_search_pagination(
                     pub_date_text
                 ):
                     logging.info(
-                        "[%s] Non-current obituary found. Stopping city processing.",
+                        (
+                            "[%s] Non-current obituary found. "
+                            "Stopping city processing. url=%s publication_date=%s"
+                        ),
                         subdomain.upper(),
+                        item["url"],
+                        pub_date_text,
                     )
                     if current_page_urls:
-                        yield current_page_urls
+                        yield page, current_page_urls
                     return
 
                 current_page_urls.append(item["url"])
@@ -513,12 +523,18 @@ def is_current_month_and_year(publication_date_str):
         return False
 
 
-def is_alumni_obituary(content_text):
+def get_matching_alumni_keyword(content_text):
     normalized_content = (content_text or "").casefold()
-    return any(
-        keyword.casefold() in normalized_content
-        for keyword in DEFAULT_ALUMNI_KEYWORDS
-    )
+
+    for keyword in DEFAULT_ALUMNI_KEYWORDS:
+        if keyword.casefold() in normalized_content:
+            return keyword
+
+    return None
+
+
+def is_alumni_obituary(content_text):
+    return get_matching_alumni_keyword(content_text) is not None
 
 
 def extract_obituary_content(soup, subdomain, url):
@@ -615,9 +631,16 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
         first_name = first_name.strip()
 
         content_text = extract_obituary_content(soup, subdomain, url)
-        alumni = is_alumni_obituary(content_text)
+        matched_alumni_keyword = get_matching_alumni_keyword(content_text)
+        alumni = matched_alumni_keyword is not None
 
         publication_date_str = get_publication_date_from_soup(soup)
+        logging.info(
+            "[%s] Publication date for obituary url=%s publication_date=%s",
+            subdomain,
+            url,
+            publication_date_str,
+        )
         try:
             publication_date = (
                 date_parser.parse(publication_date_str) if publication_date_str else None
@@ -634,7 +657,14 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
             tags = "updated"
 
         if not alumni:
-            logging.info("[%s] Obituary skipped as non-alumni: %s", subdomain, url)
+            logging.info(
+                (
+                    "[%s] Obituary skipped as non-alumni, "
+                    "no alumni keyword matched: %s"
+                ),
+                subdomain,
+                url,
+            )
             return {
                 "name": f"{first_name} {last_name}",
                 "is_alumni": False,
@@ -645,7 +675,16 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
 
         existing_obituary = Obituary.query.filter_by(obituary_url=url).first()
         if existing_obituary:
-            logging.info("[%s] Duplicate obituary URL found: %s. Skipping.", subdomain, url)
+            logging.info(
+                (
+                    "[%s] Duplicate obituary URL found, skipping insert. "
+                    "id=%s name=%s url=%s"
+                ),
+                subdomain,
+                existing_obituary.id,
+                existing_obituary.name,
+                url,
+            )
             return {
                 "name": existing_obituary.name,
                 "is_alumni": existing_obituary.is_alumni,
@@ -653,6 +692,13 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
                 "publication_date": existing_obituary.publication_date,
                 "tags": existing_obituary.tags,
             }
+
+        logging.info(
+            "[%s] Alumni keyword matched: %s url=%s",
+            subdomain,
+            matched_alumni_keyword,
+            url,
+        )
 
         donation_keywords = ["donation", "charity", "memorial fund", "contributions"]
         donation_mentions = [
@@ -701,16 +747,28 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
             longitude,
         )
 
-        db_session.add(Obituary(**payload))
+        obituary_entry = Obituary(**payload)
+        db_session.add(obituary_entry)
+        db_session.flush()
 
         distinct_exists = DistinctObituary.query.filter_by(
             obituary_url=url
         ).first()
         if not distinct_exists:
-            db_session.add(DistinctObituary(**payload))
+            distinct_entry = DistinctObituary(**payload)
+            db_session.add(distinct_entry)
+            db_session.flush()
+        else:
+            distinct_entry = distinct_exists
 
         db_session.commit()
-        logging.info("[%s] Alumni obituary saved: %s", subdomain, payload["name"])
+        logging.info(
+            "[%s] Alumni obituary saved: obituary_id=%s distinct_id=%s name=%s",
+            subdomain,
+            obituary_entry.id,
+            distinct_entry.id,
+            payload["name"],
+        )
         return {
             "name": payload["name"],
             "is_alumni": True,

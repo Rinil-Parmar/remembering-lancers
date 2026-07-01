@@ -13,7 +13,7 @@ from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
 from ..extensions import db
-from ..models import DistinctObituary, Obituary, ScrapeState
+from ..models import DistinctObituary, Obituary, ScrapeRun, ScrapeState
 from .locations import CITY_PROVINCE_MAPPING, extract_city_and_province
 from .parser import (
     extract_birth_and_death_dates_from_obituary,
@@ -94,6 +94,15 @@ def current_month_only_enabled():
 
 def resume_from_state_enabled():
     return os.environ.get("SCRAPER_RESUME_FROM_STATE", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def force_rescan_enabled():
+    return os.environ.get("SCRAPER_FORCE_RESCAN", "false").lower() in {
         "1",
         "true",
         "yes",
@@ -386,6 +395,67 @@ def update_scrape_state(state, page_number, obituary_url, status="running"):
     db.session.commit()
 
 
+def create_scrape_run():
+    run = ScrapeRun(status="running", started_at=datetime.now())
+    db.session.add(run)
+    db.session.commit()
+    logging.info("Scrape run started: run_id=%s", run.id)
+    return run
+
+
+def update_scrape_run(
+    run,
+    city=None,
+    search_keyword=None,
+    page_number=None,
+    saved_delta=0,
+    skipped_delta=0,
+    duplicate_delta=0,
+    status=None,
+    error_message=None,
+):
+    if not run:
+        return
+
+    if city is not None:
+        run.city = city
+    if search_keyword is not None:
+        run.search_keyword = search_keyword
+    if page_number is not None:
+        run.page_number = page_number
+    if status is not None:
+        run.status = status
+    if error_message:
+        run.error_message = error_message[:4000]
+
+    run.saved_count = (run.saved_count or 0) + saved_delta
+    run.skipped_count = (run.skipped_count or 0) + skipped_delta
+    run.duplicate_count = (run.duplicate_count or 0) + duplicate_delta
+    db.session.commit()
+
+
+def finish_scrape_run(run, status, error_message=None):
+    if not run:
+        return
+
+    run.status = status
+    run.finished_at = datetime.now()
+    if error_message:
+        run.error_message = error_message[:4000]
+    db.session.commit()
+    logging.info(
+        (
+            "Scrape run finished: run_id=%s status=%s "
+            "saved=%s skipped=%s duplicates=%s"
+        ),
+        run.id,
+        run.status,
+        run.saved_count,
+        run.skipped_count,
+        run.duplicate_count,
+    )
+
+
 def resume_page_urls(page_number, page_urls, state, subdomain):
     if (
         state.status != "running"
@@ -423,7 +493,7 @@ def resume_page_urls(page_number, page_urls, state, subdomain):
     return page_urls[resume_index:]
 
 
-def process_city(session, subdomain, stop_event):
+def process_city(session, subdomain, stop_event, scrape_run=None):
     logging.info("\n%s\nProcessing city: %s\n%s", "=" * 50, subdomain.upper(), "=" * 50)
 
     total_alumni = 0
@@ -436,10 +506,37 @@ def process_city(session, subdomain, stop_event):
                 break
 
             resume_enabled = resume_from_state_enabled()
+            force_rescan = force_rescan_enabled()
             scrape_state = get_or_create_scrape_state(subdomain, search_keyword)
+            update_scrape_run(
+                scrape_run,
+                city=subdomain,
+                search_keyword=search_keyword,
+            )
+            if (
+                resume_enabled
+                and not force_rescan
+                and scrape_state.status == "completed"
+            ):
+                logging.info(
+                    (
+                        "[%s] Scrape state is completed for keyword '%s'; "
+                        "skipping. Set SCRAPER_FORCE_RESCAN=true to scan again."
+                    ),
+                    subdomain.upper(),
+                    search_keyword,
+                )
+                update_scrape_run(scrape_run, skipped_delta=1)
+                continue
+
             if not resume_enabled:
                 logging.info(
                     "[%s] SCRAPER_RESUME_FROM_STATE=false; starting from page 1.",
+                    subdomain.upper(),
+                )
+            elif force_rescan:
+                logging.info(
+                    "[%s] SCRAPER_FORCE_RESCAN=true; scanning completed state again.",
                     subdomain.upper(),
                 )
             existing_url_count = 0
@@ -463,6 +560,12 @@ def process_city(session, subdomain, stop_event):
             )
 
             for page_number, page_urls in page_generator:
+                update_scrape_run(
+                    scrape_run,
+                    city=subdomain,
+                    search_keyword=search_keyword,
+                    page_number=page_number,
+                )
                 if stop_event.is_set():
                     logging.info(
                         "[%s] Stop event detected during page URL processing.",
@@ -517,6 +620,7 @@ def process_city(session, subdomain, stop_event):
                             page_number,
                             url,
                         )
+                        update_scrape_run(scrape_run, duplicate_delta=1)
                         if (
                             existing_url_stop_threshold > 0
                             and existing_url_count >= existing_url_stop_threshold
@@ -558,6 +662,9 @@ def process_city(session, subdomain, stop_event):
                             )
                             if result and result["is_alumni"]:
                                 total_alumni += 1
+                                update_scrape_run(scrape_run, saved_delta=1)
+                            else:
+                                update_scrape_run(scrape_run, skipped_delta=1)
                             success = True
                             break
                         except requests.exceptions.RequestException as exc:
@@ -576,12 +683,23 @@ def process_city(session, subdomain, stop_event):
                             subdomain.upper(),
                             url,
                         )
+                        update_scrape_run(
+                            scrape_run,
+                            skipped_delta=1,
+                            error_message=f"Failed to process obituary: {url}",
+                        )
 
                     update_scrape_state(scrape_state, page_number, url)
                     time.sleep(random.uniform(0.7, 1.3))
 
     except Exception as exc:
         logging.error("[%s] Critical error processing city: %s", subdomain.upper(), exc)
+        update_scrape_run(
+            scrape_run,
+            city=subdomain,
+            status="failed",
+            error_message=f"{subdomain}: {exc}",
+        )
     finally:
         logging.info("[%s] Completed. Alumni found: %s", subdomain.upper(), total_alumni)
 
@@ -927,26 +1045,45 @@ def get_coordinates(city, province):
 
 def main(stop_event):
     logging.info("Starting obituary scraping process.")
+    scrape_run = create_scrape_run()
     session = configure_session()
 
-    subdomains = get_city_subdomains(session)
-    if not subdomains:
-        logging.error("No city subdomains found. Aborting.")
-        return
+    try:
+        subdomains = get_city_subdomains(session)
+        if not subdomains:
+            logging.error("No city subdomains found. Aborting.")
+            finish_scrape_run(scrape_run, "failed", "No city subdomains found.")
+            return
 
-    subdomains = order_subdomains(subdomains)
-    if not subdomains:
-        logging.error("No matching city subdomains to process. Aborting.")
-        return
+        subdomains = order_subdomains(subdomains)
+        if not subdomains:
+            logging.error("No matching city subdomains to process. Aborting.")
+            finish_scrape_run(
+                scrape_run,
+                "failed",
+                "No matching city subdomains to process.",
+            )
+            return
 
-    logging.info("City scrape order: %s", ", ".join(subdomains))
-    logging.info("Found %s city subdomains to process.", len(subdomains))
+        logging.info("City scrape order: %s", ", ".join(subdomains))
+        logging.info("Found %s city subdomains to process.", len(subdomains))
 
-    for subdomain in subdomains:
-        if stop_event.is_set():
-            logging.info("Scraping stopped by system request")
-            break
+        for subdomain in subdomains:
+            if stop_event.is_set():
+                logging.info("Scraping stopped by system request")
+                break
 
-        process_city(session, subdomain, stop_event)
+            process_city(session, subdomain, stop_event, scrape_run)
 
-    logging.info("Obituary scraping process completed or stopped.")
+        db.session.refresh(scrape_run)
+        if scrape_run.status == "failed":
+            finish_scrape_run(scrape_run, "failed", scrape_run.error_message)
+        elif stop_event.is_set():
+            finish_scrape_run(scrape_run, "stopped")
+        else:
+            finish_scrape_run(scrape_run, "success")
+    except Exception as exc:
+        logging.exception("Obituary scraping process failed.")
+        finish_scrape_run(scrape_run, "failed", str(exc))
+    finally:
+        logging.info("Obituary scraping process completed or stopped.")

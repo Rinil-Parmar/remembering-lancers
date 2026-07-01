@@ -73,3 +73,27 @@ class ScrapeState(db.Model):
             f"<ScrapeState {self.subdomain} "
             f"{self.search_keyword} page={self.page_number}>"
         )
+
+
+class ScrapeRun(db.Model):
+    __tablename__ = "scrape_runs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    status = db.Column(db.String(50), nullable=False, default="running")
+    started_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    finished_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    city = db.Column(db.String(255), nullable=True)
+    search_keyword = db.Column(db.String(255), nullable=True)
+    page_number = db.Column(db.Integer, nullable=True)
+    saved_count = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    skipped_count = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    duplicate_count = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    error_message = db.Column(db.Text, nullable=True)
+
+    def __repr__(self):
+        return f"<ScrapeRun {self.id} status={self.status}>"

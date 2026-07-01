@@ -9,6 +9,7 @@ from remembering_lancers.scraper.parser import (
 from remembering_lancers.scraper.runner import (
     SEARCH_KEYWORD,
     current_month_only_enabled,
+    force_rescan_enabled,
     get_existing_url_stop_threshold,
     get_search_keywords,
     get_target_city,
@@ -137,6 +138,18 @@ def test_resume_from_state_enabled_accepts_false_values(monkeypatch):
     for value in ["0", "false", "no", "off"]:
         monkeypatch.setenv("SCRAPER_RESUME_FROM_STATE", value)
         assert resume_from_state_enabled() is False
+
+
+def test_force_rescan_enabled_defaults_to_false(monkeypatch):
+    monkeypatch.delenv("SCRAPER_FORCE_RESCAN", raising=False)
+
+    assert force_rescan_enabled() is False
+
+
+def test_force_rescan_enabled_accepts_truthy_values(monkeypatch):
+    for value in ["1", "true", "yes", "on"]:
+        monkeypatch.setenv("SCRAPER_FORCE_RESCAN", value)
+        assert force_rescan_enabled() is True
 
 
 def test_request_timeout_defaults_and_reads_environment(monkeypatch):

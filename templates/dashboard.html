@@ -269,6 +269,38 @@
           <p class="mt-2 text-gray-500">
             Last Scrape Time: <span id="lastScrapeTimeDisplay">Never</span>
           </p>
+          <p class="mt-3 text-sm text-gray-500" id="scraperNotice"></p>
+          <div class="scraper-progress-grid mt-5">
+            <div class="scraper-progress-item">
+              <span>City</span>
+              <strong id="scraperCity">-</strong>
+            </div>
+            <div class="scraper-progress-item">
+              <span>Keyword</span>
+              <strong id="scraperKeyword">-</strong>
+            </div>
+            <div class="scraper-progress-item">
+              <span>Page</span>
+              <strong id="scraperPage">-</strong>
+            </div>
+            <div class="scraper-progress-item">
+              <span>Saved</span>
+              <strong id="scraperSaved">0</strong>
+            </div>
+            <div class="scraper-progress-item">
+              <span>Skipped</span>
+              <strong id="scraperSkipped">0</strong>
+            </div>
+            <div class="scraper-progress-item">
+              <span>Duplicates</span>
+              <strong id="scraperDuplicates">0</strong>
+            </div>
+          </div>
+          <div class="scraper-time-row mt-4">
+            <span>Started: <strong id="scraperStartedAt">-</strong></span>
+            <span>Finished: <strong id="scraperFinishedAt">-</strong></span>
+          </div>
+          <div id="scraperError" class="scraper-error hidden"></div>
         </div>
 
         <!-- Recent Obituaries Section -->

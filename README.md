@@ -125,6 +125,7 @@ APP_ENV=development
 HOST=0.0.0.0
 PORT=8000
 LOG_LEVEL=INFO
+SCRAPER_MODE=keyword_search
 SCRAPER_CITY=
 SCRAPER_CURRENT_MONTH_ONLY=true
 SCRAPER_MAX_PAGES=1
@@ -265,21 +266,23 @@ Important scraper environment variables:
 
 ```env
 SCRAPER_CITY=windsorstar
+SCRAPER_MODE=listing_scan
 SCRAPER_CURRENT_MONTH_ONLY=false
 SCRAPER_MAX_PAGES=3
 SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
 SCRAPER_EXISTING_URL_STOP_THRESHOLD=0
 SCRAPER_RESUME_FROM_STATE=true
-SCRAPER_FORCE_RESCAN=false
+SCRAPER_FORCE_RESCAN=true
 SCRAPER_REQUEST_TIMEOUT=10
 SCRAPER_RETRY_TOTAL=3
 ```
 
+- `SCRAPER_MODE`: use `listing_scan` to scan each obituary once from normal listing pages, or `keyword_search` to use Remembering.ca keyword search pages.
 - `SCRAPER_CITY`: scrape only one Remembering.ca subdomain. Empty means scrape all configured locations, with Windsor and nearby Ontario locations first.
 - `SCRAPER_CURRENT_MONTH_ONLY`: when `true`, skip older publication dates. For discovery/testing, use `false`.
 - `SCRAPER_MAX_PAGES`: maximum search result pages per city and keyword.
 - `SCRAPER_SEARCH_KEYWORDS`: comma-separated search terms used on Remembering.ca.
-- `SCRAPER_EXISTING_URL_STOP_THRESHOLD`: stop a city after this many consecutive already-saved obituary URLs. Use `0` for full/backfill scans where duplicates should be skipped without stopping the city.
+- `SCRAPER_EXISTING_URL_STOP_THRESHOLD`: stop the current city/keyword scan after this many consecutive already-saved obituary URLs. Use `0` for full/backfill scans where duplicates should be skipped without stopping the scan.
 - `SCRAPER_RESUME_FROM_STATE`: when `true`, resume from the last URL stored in `scrape_state`. When `false`, ignore previous state and start from page 1.
 - `SCRAPER_FORCE_RESCAN`: when `true`, scan city/keyword pairs even if `scrape_state` says they are completed.
 - `SCRAPER_REQUEST_TIMEOUT`: HTTP timeout in seconds for scraper requests.
@@ -288,6 +291,17 @@ SCRAPER_RETRY_TOTAL=3
 The scraper stores resume progress in the `scrape_state` table. If stopped and started again, it resumes after the last processed URL for each city and search keyword.
 
 The scraper stores Start-click history in the `scrape_runs` table. It tracks status, current city, current keyword, page number, saved count, skipped count, duplicate count, start/end time, and error message.
+
+For production backfill, prefer:
+
+```env
+SCRAPER_MODE=listing_scan
+SCRAPER_EXISTING_URL_STOP_THRESHOLD=0
+SCRAPER_RESUME_FROM_STATE=true
+SCRAPER_FORCE_RESCAN=false
+```
+
+This checks each obituary once and matches all alumni keywords from the obituary body.
 
 For normal incremental runs, keep:
 
@@ -299,9 +313,10 @@ For full/backfill testing, use:
 
 ```env
 SCRAPER_EXISTING_URL_STOP_THRESHOLD=0
+SCRAPER_FORCE_RESCAN=true
 ```
 
-This still skips existing duplicate URLs, but it does not stop the city early.
+This still skips existing duplicate URLs, but it does not stop the scan early.
 
 ## Manual Scraper Test Checklist
 
@@ -320,12 +335,13 @@ Update `.env`:
 
 ```env
 SCRAPER_CITY=windsorstar
+SCRAPER_MODE=listing_scan
 SCRAPER_CURRENT_MONTH_ONLY=false
 SCRAPER_MAX_PAGES=3
 SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
 SCRAPER_EXISTING_URL_STOP_THRESHOLD=0
 SCRAPER_RESUME_FROM_STATE=true
-SCRAPER_FORCE_RESCAN=false
+SCRAPER_FORCE_RESCAN=true
 SCRAPER_REQUEST_TIMEOUT=10
 SCRAPER_RETRY_TOTAL=3
 ```

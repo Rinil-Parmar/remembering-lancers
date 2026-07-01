@@ -108,7 +108,7 @@ def get_target_city():
 
 def get_existing_url_stop_threshold():
     try:
-        return max(1, int(os.environ.get("SCRAPER_EXISTING_URL_STOP_THRESHOLD", "3")))
+        return max(0, int(os.environ.get("SCRAPER_EXISTING_URL_STOP_THRESHOLD", "3")))
     except ValueError:
         logging.warning("Invalid SCRAPER_EXISTING_URL_STOP_THRESHOLD; using 3.")
         return 3
@@ -444,6 +444,14 @@ def process_city(session, subdomain, stop_event):
                 )
             existing_url_count = 0
             existing_url_stop_threshold = get_existing_url_stop_threshold()
+            if existing_url_stop_threshold == 0:
+                logging.info(
+                    (
+                        "[%s] Existing URL stop threshold is disabled; "
+                        "duplicates will be skipped without stopping the city."
+                    ),
+                    subdomain.upper(),
+                )
 
             page_generator = process_search_pagination(
                 session,
@@ -488,21 +496,31 @@ def process_city(session, subdomain, stop_event):
 
                     if obituary_url_exists(url):
                         existing_url_count += 1
-                        logging.info(
-                            (
-                                "[%s] Existing obituary reached %s/%s: %s"
-                            ),
-                            subdomain.upper(),
-                            existing_url_count,
-                            existing_url_stop_threshold,
-                            url,
-                        )
+                        if existing_url_stop_threshold > 0:
+                            logging.info(
+                                (
+                                    "[%s] Existing obituary reached %s/%s: %s"
+                                ),
+                                subdomain.upper(),
+                                existing_url_count,
+                                existing_url_stop_threshold,
+                                url,
+                            )
+                        else:
+                            logging.info(
+                                "[%s] Existing obituary duplicate skipped: %s",
+                                subdomain.upper(),
+                                url,
+                            )
                         update_scrape_state(
                             scrape_state,
                             page_number,
                             url,
                         )
-                        if existing_url_count >= existing_url_stop_threshold:
+                        if (
+                            existing_url_stop_threshold > 0
+                            and existing_url_count >= existing_url_stop_threshold
+                        ):
                             logging.info(
                                 (
                                     "[%s] Existing obituary reached, "

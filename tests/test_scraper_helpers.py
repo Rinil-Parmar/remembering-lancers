@@ -9,6 +9,7 @@ from remembering_lancers.scraper.parser import (
 from remembering_lancers.scraper.runner import (
     SEARCH_KEYWORD,
     current_month_only_enabled,
+    get_existing_url_stop_threshold,
     get_search_keywords,
     get_target_city,
     get_matching_alumni_keyword,
@@ -152,6 +153,20 @@ def test_retry_total_defaults_and_reads_environment(monkeypatch):
 
     monkeypatch.setenv("SCRAPER_RETRY_TOTAL", "5")
     assert get_retry_total() == 5
+
+
+def test_existing_url_stop_threshold_defaults_and_reads_environment(monkeypatch):
+    monkeypatch.delenv("SCRAPER_EXISTING_URL_STOP_THRESHOLD", raising=False)
+    assert get_existing_url_stop_threshold() == 3
+
+    monkeypatch.setenv("SCRAPER_EXISTING_URL_STOP_THRESHOLD", "5")
+    assert get_existing_url_stop_threshold() == 5
+
+
+def test_existing_url_stop_threshold_zero_disables_stop(monkeypatch):
+    monkeypatch.setenv("SCRAPER_EXISTING_URL_STOP_THRESHOLD", "0")
+
+    assert get_existing_url_stop_threshold() == 0
 
 
 def test_order_subdomains_prioritizes_windsor_and_nearby_locations(monkeypatch):

@@ -266,7 +266,7 @@ SCRAPER_CITY=windsorstar
 SCRAPER_CURRENT_MONTH_ONLY=false
 SCRAPER_MAX_PAGES=3
 SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
-SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+SCRAPER_EXISTING_URL_STOP_THRESHOLD=0
 SCRAPER_RESUME_FROM_STATE=true
 SCRAPER_REQUEST_TIMEOUT=10
 SCRAPER_RETRY_TOTAL=3
@@ -276,12 +276,26 @@ SCRAPER_RETRY_TOTAL=3
 - `SCRAPER_CURRENT_MONTH_ONLY`: when `true`, skip older publication dates. For discovery/testing, use `false`.
 - `SCRAPER_MAX_PAGES`: maximum search result pages per city and keyword.
 - `SCRAPER_SEARCH_KEYWORDS`: comma-separated search terms used on Remembering.ca.
-- `SCRAPER_EXISTING_URL_STOP_THRESHOLD`: stop a city after this many consecutive already-saved obituary URLs.
+- `SCRAPER_EXISTING_URL_STOP_THRESHOLD`: stop a city after this many consecutive already-saved obituary URLs. Use `0` for full/backfill scans where duplicates should be skipped without stopping the city.
 - `SCRAPER_RESUME_FROM_STATE`: when `true`, resume from the last URL stored in `scrape_state`. When `false`, ignore previous state and start from page 1.
 - `SCRAPER_REQUEST_TIMEOUT`: HTTP timeout in seconds for scraper requests.
 - `SCRAPER_RETRY_TOTAL`: retry count for temporary HTTP failures.
 
 The scraper stores resume progress in the `scrape_state` table. If stopped and started again, it resumes after the last processed URL for each city and search keyword.
+
+For normal incremental runs, keep:
+
+```env
+SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+```
+
+For full/backfill testing, use:
+
+```env
+SCRAPER_EXISTING_URL_STOP_THRESHOLD=0
+```
+
+This still skips existing duplicate URLs, but it does not stop the city early.
 
 ## Manual Scraper Test Checklist
 
@@ -353,9 +367,7 @@ Obituary skipped as non-alumni, no alumni keyword matched
 For already-scraped records:
 
 ```text
-Existing obituary reached 1/3
-Existing obituary reached 2/3
-Existing obituary reached 3/3, stopping city
+Existing obituary duplicate skipped
 ```
 
 ### 6. Check database counts

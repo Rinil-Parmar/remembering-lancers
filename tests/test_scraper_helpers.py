@@ -10,8 +10,8 @@ from remembering_lancers.scraper.runner import (
     SEARCH_KEYWORD,
     current_month_only_enabled,
     force_rescan_enabled,
-    get_existing_url_stop_threshold,
     get_max_pages,
+    get_repeated_page_stop_threshold,
     get_scraper_mode,
     get_search_keywords,
     get_target_city,
@@ -108,9 +108,14 @@ def test_get_search_keywords_defaults_when_env_missing(monkeypatch):
     monkeypatch.delenv("SCRAPER_SEARCH_KEYWORDS", raising=False)
 
     assert get_search_keywords() == [
-        "University of Windsor",
         "UWindsor",
         "Windsor University",
+        "Assumption University",
+        "Assumption College",
+        "Windsor Law",
+        "professor emeritus",
+        "alumnus",
+        "alumni",
     ]
 
 
@@ -186,18 +191,18 @@ def test_max_pages_defaults_and_reads_environment(monkeypatch):
     assert get_max_pages() == 12
 
 
-def test_existing_url_stop_threshold_defaults_and_reads_environment(monkeypatch):
-    monkeypatch.delenv("SCRAPER_EXISTING_URL_STOP_THRESHOLD", raising=False)
-    assert get_existing_url_stop_threshold() == 3
+def test_repeated_page_stop_threshold_defaults_and_reads_environment(monkeypatch):
+    monkeypatch.delenv("SCRAPER_REPEATED_PAGE_STOP_THRESHOLD", raising=False)
+    assert get_repeated_page_stop_threshold() == 3
 
-    monkeypatch.setenv("SCRAPER_EXISTING_URL_STOP_THRESHOLD", "5")
-    assert get_existing_url_stop_threshold() == 5
+    monkeypatch.setenv("SCRAPER_REPEATED_PAGE_STOP_THRESHOLD", "5")
+    assert get_repeated_page_stop_threshold() == 5
 
 
-def test_existing_url_stop_threshold_zero_disables_stop(monkeypatch):
-    monkeypatch.setenv("SCRAPER_EXISTING_URL_STOP_THRESHOLD", "0")
+def test_repeated_page_stop_threshold_never_goes_below_one(monkeypatch):
+    monkeypatch.setenv("SCRAPER_REPEATED_PAGE_STOP_THRESHOLD", "0")
 
-    assert get_existing_url_stop_threshold() == 0
+    assert get_repeated_page_stop_threshold() == 1
 
 
 def test_order_subdomains_prioritizes_windsor_and_nearby_locations(monkeypatch):

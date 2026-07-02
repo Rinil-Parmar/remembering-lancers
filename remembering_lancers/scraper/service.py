@@ -21,7 +21,7 @@ class ScraperService:
     @property
     def is_active(self):
         with self.state_lock:
-            return not self.stop_event.is_set()
+            return self.thread is not None and self.thread.is_alive()
 
     def start(self):
         with self.state_lock:

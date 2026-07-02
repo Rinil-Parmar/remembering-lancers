@@ -1,6 +1,7 @@
 import threading
 
 import pytest
+import requests
 from bs4 import BeautifulSoup
 
 from remembering_lancers.extensions import db
@@ -125,23 +126,38 @@ def test_extract_obituary_name_falls_back_to_page_title():
     assert runner.extract_obituary_name(soup) == ("Alan George", "Wildeman")
 
 
+def test_build_search_url_uses_page_limit(monkeypatch):
+    monkeypatch.setenv("SCRAPER_PAGE_LIMIT", "125")
+
+    assert runner.build_search_url("windsorstar", "UWindsor", 2) == (
+        "https://windsorstar.remembering.ca/obituaries/obituaries/search"
+        "?limit=125&search_type=advanced&ap_search_keyword=UWindsor"
+        "&sort_by=date&order=desc&p=2"
+    )
+
+
+def test_build_listing_url_uses_page_limit(monkeypatch):
+    monkeypatch.setenv("SCRAPER_PAGE_LIMIT", "125")
+
+    assert runner.build_listing_url("windsorstar", 2) == (
+        "https://windsorstar.remembering.ca/obituaries/obituaries/search"
+        "?limit=125&p=2"
+    )
+
+
 def test_process_search_pagination_deduplicates_page_links(monkeypatch):
     base_url = "https://windsorstar.remembering.ca"
     obit_url = f"{base_url}/obituary/test-alumni-1"
     search_url = (
-        f"{base_url}/obituaries/all-categories/search"
-        "?search_type=advanced&ap_search_keyword=UWindsor&sort_by=date&order=desc"
+        f"{base_url}/obituaries/obituaries/search"
+        "?limit=125&search_type=advanced&ap_search_keyword=UWindsor"
+        "&sort_by=date&order=desc"
     )
     session = MappingSession(
         {
             search_url: """
                 <a href="/obituary/test-alumni-1">One</a>
                 <a href="/obituary/test-alumni-1">Duplicate</a>
-            """,
-            obit_url: """
-                <div class="details-published">
-                    Published online June 10, 2026
-                </div>
             """,
         }
     )
@@ -162,12 +178,60 @@ def test_process_search_pagination_deduplicates_page_links(monkeypatch):
     )
 
     assert pages == [(1, [obit_url])]
-    assert session.calls.count((obit_url, 7)) == 1
+    assert session.calls == [(search_url, 7)]
+
+
+def test_fetch_search_page_urls_stops_repeated_page_content(monkeypatch):
+    base_url = "https://windsorstar.remembering.ca"
+    first_search_url = (
+        f"{base_url}/obituaries/obituaries/search"
+        "?limit=125&search_type=advanced&ap_search_keyword=UWindsor"
+        "&sort_by=date&order=desc"
+    )
+    second_search_url = f"{first_search_url}&p=2"
+    obit_url = f"{base_url}/obituary/test-alumni-1"
+    page_html = '<a href="/obituary/test-alumni-1">One</a>'
+    session = MappingSession(
+        {
+            first_search_url: page_html,
+            second_search_url: page_html,
+        }
+    )
+    visited_search_pages = set()
+
+    monkeypatch.setenv("SCRAPER_CURRENT_MONTH_ONLY", "false")
+    monkeypatch.setenv("SCRAPER_REQUEST_TIMEOUT", "7")
+
+    first_urls, first_stop = runner.fetch_search_page_urls(
+        session,
+        "windsorstar",
+        "UWindsor",
+        1,
+        visited_search_pages,
+        set(),
+        {},
+        threading.Event(),
+    )
+    second_urls, second_stop = runner.fetch_search_page_urls(
+        session,
+        "windsorstar",
+        "UWindsor",
+        2,
+        visited_search_pages,
+        set(),
+        {},
+        threading.Event(),
+    )
+
+    assert first_urls == [obit_url]
+    assert first_stop is False
+    assert second_urls == []
+    assert second_stop is True
 
 
 def test_fetch_listing_page_urls_deduplicates_links(monkeypatch):
     base_url = "https://windsorstar.remembering.ca"
-    listing_url = f"{base_url}/obituaries/all-categories"
+    listing_url = f"{base_url}/obituaries/obituaries/search?limit=125"
     obit_url = f"{base_url}/obituary/test-alumni-1"
     session = MappingSession(
         {
@@ -180,17 +244,67 @@ def test_fetch_listing_page_urls_deduplicates_links(monkeypatch):
 
     monkeypatch.setenv("SCRAPER_REQUEST_TIMEOUT", "7")
 
-    urls, stop_city = runner.fetch_listing_page_urls(
+    urls, stop_city, stop_reason = runner.fetch_listing_page_urls(
         session,
         "windsorstar",
         1,
         set(),
+        {},
         threading.Event(),
     )
 
     assert urls == [obit_url]
     assert stop_city is False
+    assert stop_reason is None
     assert session.calls == [(listing_url, 7)]
+
+
+def test_fetch_listing_page_urls_stops_on_repeated_page_content(monkeypatch):
+    base_url = "https://windsorstar.remembering.ca"
+    first_listing_url = f"{base_url}/obituaries/obituaries/search?limit=125"
+    second_listing_url = f"{base_url}/obituaries/obituaries/search?limit=125&p=2"
+    page_html = """
+        <a href="/obituary/test-alumni-1">One</a>
+        <a href="/obituary/test-alumni-2">Two</a>
+    """
+    session = MappingSession(
+        {
+            first_listing_url: page_html,
+            second_listing_url: page_html,
+        }
+    )
+    visited_listing_pages = set()
+    visited_listing_signatures = {}
+
+    monkeypatch.setenv("SCRAPER_REQUEST_TIMEOUT", "7")
+    monkeypatch.setenv("SCRAPER_REPEATED_PAGE_STOP_THRESHOLD", "1")
+
+    first_urls, first_stop, first_reason = runner.fetch_listing_page_urls(
+        session,
+        "windsorstar",
+        1,
+        visited_listing_pages,
+        visited_listing_signatures,
+        threading.Event(),
+    )
+    second_urls, second_stop, second_reason = runner.fetch_listing_page_urls(
+        session,
+        "windsorstar",
+        2,
+        visited_listing_pages,
+        visited_listing_signatures,
+        threading.Event(),
+    )
+
+    assert first_urls == [
+        f"{base_url}/obituary/test-alumni-1",
+        f"{base_url}/obituary/test-alumni-2",
+    ]
+    assert first_stop is False
+    assert first_reason is None
+    assert second_urls == []
+    assert second_stop is True
+    assert second_reason == runner.FETCH_STOP_REPEATED_PAGE
 
 
 def test_process_obituary_skips_existing_obituary_url(app, monkeypatch):
@@ -251,7 +365,7 @@ def test_newly_scraped_obituary_is_tagged_new_even_when_old_publication_date(
     assert DistinctObituary.query.filter_by(obituary_url=new_url).first().tags == "new"
 
 
-def test_process_city_stops_when_existing_obituary_url_is_reached(app, monkeypatch):
+def test_process_city_skips_existing_urls_and_continues(app, monkeypatch):
     processed_urls = []
     existing_url = "https://test.local/obituary/test-alumni-1"
     existing_url_2 = "https://test.local/obituary/second-alumni"
@@ -275,7 +389,6 @@ def test_process_city_stops_when_existing_obituary_url_is_reached(app, monkeypat
         return {"is_alumni": True}
 
     monkeypatch.setattr(runner, "get_search_keywords", lambda: ["University of Windsor"])
-    monkeypatch.setattr(runner, "get_existing_url_stop_threshold", lambda: 3)
     monkeypatch.setattr(
         runner,
         "fetch_search_page_urls",
@@ -286,10 +399,10 @@ def test_process_city_stops_when_existing_obituary_url_is_reached(app, monkeypat
 
     runner.process_city(FakeSession(""), "windsorstar", threading.Event())
 
-    assert processed_urls == []
+    assert processed_urls == [later_url]
 
 
-def test_process_city_duplicate_threshold_continues_next_keyword(app, monkeypatch):
+def test_process_city_duplicate_urls_do_not_block_next_keyword(app, monkeypatch):
     processed_urls = []
     existing_url = "https://test.local/obituary/test-alumni-1"
     existing_url_2 = "https://test.local/obituary/second-alumni"
@@ -318,7 +431,6 @@ def test_process_city_duplicate_threshold_continues_next_keyword(app, monkeypatc
         "first keyword",
         "second keyword",
     ])
-    monkeypatch.setattr(runner, "get_existing_url_stop_threshold", lambda: 3)
     monkeypatch.setattr(
         runner,
         "fetch_search_page_urls",
@@ -364,7 +476,7 @@ def test_process_city_scans_pages_before_advancing_keyword_batches(app, monkeypa
     ]
 
 
-def test_process_city_continues_existing_urls_when_threshold_disabled(
+def test_process_city_continues_after_existing_urls(
     app,
     monkeypatch,
 ):
@@ -391,7 +503,6 @@ def test_process_city_continues_existing_urls_when_threshold_disabled(
         return {"is_alumni": True}
 
     monkeypatch.setattr(runner, "get_search_keywords", lambda: ["University of Windsor"])
-    monkeypatch.setattr(runner, "get_existing_url_stop_threshold", lambda: 0)
     monkeypatch.setattr(
         runner,
         "fetch_search_page_urls",
@@ -405,7 +516,7 @@ def test_process_city_continues_existing_urls_when_threshold_disabled(
     assert processed_urls == [later_url]
 
 
-def test_process_city_records_run_counts_when_threshold_disabled(app, monkeypatch):
+def test_process_city_records_run_counts_for_duplicates_and_saved_urls(app, monkeypatch):
     processed_urls = []
     existing_url = "https://test.local/obituary/test-alumni-1"
     later_url = "https://windsorstar.remembering.ca/obituary/newer-alumni"
@@ -430,7 +541,6 @@ def test_process_city_records_run_counts_when_threshold_disabled(app, monkeypatc
         return {"is_alumni": True}
 
     monkeypatch.setattr(runner, "get_search_keywords", lambda: ["University of Windsor"])
-    monkeypatch.setattr(runner, "get_existing_url_stop_threshold", lambda: 0)
     monkeypatch.setattr(runner, "get_max_pages", lambda: 2)
     monkeypatch.setattr(
         runner,
@@ -454,6 +564,19 @@ def test_process_city_records_run_counts_when_threshold_disabled(app, monkeypatc
     assert scrape_run.page_number == 2
     assert scrape_run.saved_count == 1
     assert scrape_run.duplicate_count == 1
+
+
+def test_create_scrape_run_marks_stale_running_runs_stopped(app):
+    stale_run = ScrapeRun(status="running", started_at=runner.datetime.now())
+    db.session.add(stale_run)
+    db.session.commit()
+
+    new_run = runner.create_scrape_run()
+
+    db.session.refresh(stale_run)
+    assert stale_run.status == "stopped"
+    assert stale_run.finished_at is not None
+    assert new_run.status == "running"
 
 
 def test_process_city_skips_completed_state_without_force_rescan(app, monkeypatch):
@@ -641,6 +764,86 @@ def test_process_city_ignores_previous_state_when_resume_disabled(app, monkeypat
     assert processed_urls == [previous_url, next_url]
 
 
+def test_keyword_state_is_completed_when_keyword_stops(app, monkeypatch):
+    def fake_fetch_search_page_urls(
+        session,
+        subdomain,
+        search_keyword,
+        page,
+        visited_search_pages,
+        visited_obituaries,
+        publication_date_cache,
+        stop_event,
+    ):
+        return [], True
+
+    monkeypatch.setattr(runner, "get_search_keywords", lambda: ["University of Windsor"])
+    monkeypatch.setattr(runner, "fetch_search_page_urls", fake_fetch_search_page_urls)
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    runner.process_city(FakeSession(""), "windsorstar", threading.Event())
+
+    state = ScrapeState.query.filter_by(
+        subdomain="windsorstar",
+        search_keyword="University of Windsor",
+    ).one()
+    assert state.status == runner.SCRAPE_STATE_COMPLETED
+
+
+def test_configured_alumni_keywords_are_used(monkeypatch):
+    monkeypatch.setenv("SCRAPER_ALUMNI_KEYWORDS", "Custom Alumni Phrase")
+
+    assert (
+        runner.get_matching_alumni_keyword(
+            "This obituary mentions a custom alumni phrase."
+        )
+        == "Custom Alumni Phrase"
+    )
+
+
+def test_process_city_retries_obituary_after_request_failure(app, monkeypatch):
+    new_url = "https://windsorstar.remembering.ca/obituary/flaky-alumni"
+    scrape_run = runner.create_scrape_run()
+
+    class FlakySession:
+        def __init__(self):
+            self.obituary_calls = 0
+
+        def get(self, url, **_kwargs):
+            if url == new_url:
+                self.obituary_calls += 1
+                if self.obituary_calls == 1:
+                    raise requests.exceptions.Timeout("temporary timeout")
+                return FakeResponse(obituary_html())
+            return FakeResponse("")
+
+    session = FlakySession()
+
+    def fake_fetch_search_page_urls(
+        session,
+        subdomain,
+        search_keyword,
+        page,
+        visited_search_pages,
+        visited_obituaries,
+        publication_date_cache,
+        stop_event,
+    ):
+        return [new_url], True
+
+    monkeypatch.setattr(runner, "get_search_keywords", lambda: ["University of Windsor"])
+    monkeypatch.setattr(runner, "fetch_search_page_urls", fake_fetch_search_page_urls)
+    monkeypatch.setattr(runner, "get_coordinates", lambda city, province: (1.0, 2.0))
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    runner.process_city(session, "windsorstar", threading.Event(), scrape_run)
+
+    db.session.refresh(scrape_run)
+    assert session.obituary_calls == 2
+    assert scrape_run.saved_count == 1
+    assert Obituary.query.filter_by(obituary_url=new_url).count() == 1
+
+
 def test_listing_scan_processes_each_obituary_once(app, monkeypatch):
     processed_urls = []
     first_url = "https://windsorstar.remembering.ca/obituary/listing-one"
@@ -651,6 +854,7 @@ def test_listing_scan_processes_each_obituary_once(app, monkeypatch):
         subdomain,
         page,
         visited_listing_pages,
+        visited_listing_signatures,
         stop_event,
     ):
         if page == 1:
@@ -696,6 +900,7 @@ def test_listing_scan_resumes_after_last_processed_url(app, monkeypatch):
         subdomain,
         page,
         visited_listing_pages,
+        visited_listing_signatures,
         stop_event,
     ):
         return [previous_url, next_url], True

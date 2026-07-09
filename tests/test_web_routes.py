@@ -1,3 +1,6 @@
+import csv
+from io import StringIO
+
 from remembering_lancers.models import DistinctObituary, Obituary
 from remembering_lancers.extensions import db
 from remembering_lancers.web.formatting import (
@@ -14,7 +17,18 @@ def test_dashboard_about_detail_and_csv_routes(client):
     csv_response = client.get("/download_csv")
     assert csv_response.status_code == 200
     assert "text/csv" in csv_response.content_type
-    assert b"Test Alumni" in csv_response.data
+    assert "remembering_lancers_obituaries_" in csv_response.headers[
+        "Content-Disposition"
+    ]
+
+    csv_text = csv_response.data.decode("utf-8-sig")
+    rows = list(csv.DictReader(StringIO(csv_text)))
+    assert rows[0]["name"] == "Test Alumni"
+    assert rows[0]["publication_date"] == "2026-06-01"
+    assert rows[0]["funeral_home"] == "Test Home"
+    assert rows[0]["is_alumni"] == "true"
+    assert "family_information" in rows[0]
+    assert "donation_information" in rows[0]
 
 
 def test_update_tags_updates_distinct_and_source_rows(client, app):

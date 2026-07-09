@@ -1,12 +1,14 @@
 import csv
+from datetime import datetime
+from io import StringIO
 
 from flask import (
     current_app,
     jsonify,
     redirect,
+    Response,
     render_template,
     request,
-    send_file,
     url_for,
 )
 from sqlalchemy import func
@@ -23,13 +25,12 @@ def dashboard():
         func.count(func.distinct(DistinctObituary.name))
     ).scalar()
     total_obituaries = DistinctObituary.query.count()
-    total_cities = len(
-        {
-            obituary.city
-            for obituary in DistinctObituary.query.all()
-            if obituary.city
-        }
-    )
+    total_cities = db.session.query(
+        func.count(func.distinct(DistinctObituary.city))
+    ).filter(
+        DistinctObituary.city.isnot(None),
+        DistinctObituary.city != "",
+    ).scalar()
 
     scraper_service = current_app.extensions["scraper_service"]
 
@@ -79,57 +80,91 @@ def update_tags(obituary_id):
     return redirect(url_for("web.obituary_detail", obituary_id=obituary_id))
 
 
+CSV_FIELDNAMES = [
+    "id",
+    "name",
+    "first_name",
+    "last_name",
+    "birth_date",
+    "death_date",
+    "publication_date",
+    "city",
+    "province",
+    "funeral_home",
+    "obituary_url",
+    "tags",
+    "is_alumni",
+    "latitude",
+    "longitude",
+    "family_information",
+    "donation_information",
+]
+
+
+def format_csv_date(value):
+    if not value:
+        return ""
+    return value.strftime("%Y-%m-%d")
+
+
+def normalize_csv_text(value):
+    if value is None:
+        return ""
+    return " ".join(str(value).split())
+
+
+def serialize_obituary_for_csv(obituary):
+    return {
+        "id": obituary.id,
+        "name": normalize_csv_text(obituary.name),
+        "first_name": normalize_csv_text(obituary.first_name),
+        "last_name": normalize_csv_text(obituary.last_name),
+        "birth_date": normalize_csv_text(obituary.birth_date),
+        "death_date": normalize_csv_text(obituary.death_date),
+        "publication_date": format_csv_date(obituary.publication_date),
+        "city": normalize_csv_text(obituary.city),
+        "province": normalize_csv_text(obituary.province),
+        "funeral_home": normalize_csv_text(obituary.funeral_home),
+        "obituary_url": normalize_csv_text(obituary.obituary_url),
+        "tags": normalize_csv_text(obituary.tags),
+        "is_alumni": "true" if obituary.is_alumni else "false",
+        "latitude": "" if obituary.latitude is None else obituary.latitude,
+        "longitude": "" if obituary.longitude is None else obituary.longitude,
+        "family_information": normalize_csv_text(obituary.family_information),
+        "donation_information": normalize_csv_text(obituary.donation_information),
+    }
+
+
 def generate_csv():
-    obituaries = DistinctObituary.query.order_by(
+    obituaries = DistinctObituary.query.filter(
+        DistinctObituary.is_alumni.is_(True)
+    ).order_by(
         DistinctObituary.publication_date.desc()
     ).all()
     if not obituaries:
         return None
 
-    fieldnames = [
-        "id",
-        "name",
-        "first_name",
-        "last_name",
-        "city",
-        "province",
-        "birth_date",
-        "death_date",
-        "obituary_url",
-        "tags",
-    ]
-    csv_export_path = current_app.config["CSV_EXPORT_PATH"]
-    with open(csv_export_path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for obituary in obituaries:
-            writer.writerow(
-                {
-                    "id": obituary.id,
-                    "name": obituary.name,
-                    "first_name": obituary.first_name,
-                    "last_name": obituary.last_name,
-                    "obituary_url": obituary.obituary_url,
-                    "city": obituary.city,
-                    "province": obituary.province,
-                    "birth_date": obituary.birth_date,
-                    "death_date": obituary.death_date,
-                    "tags": obituary.tags,
-                }
-            )
+    csv_buffer = StringIO()
+    csv_buffer.write("\ufeff")
+    writer = csv.DictWriter(csv_buffer, fieldnames=CSV_FIELDNAMES)
+    writer.writeheader()
+    for obituary in obituaries:
+        writer.writerow(serialize_obituary_for_csv(obituary))
 
-    return csv_export_path
+    return csv_buffer.getvalue()
 
 
 @web_bp.get("/download_csv")
 def download_csv():
-    csv_file = generate_csv()
-    if not csv_file:
+    csv_data = generate_csv()
+    if not csv_data:
         return jsonify({"error": "No obituaries available to download"}), 404
 
-    return send_file(
-        csv_file,
-        as_attachment=True,
-        download_name="obituaries.csv",
-        mimetype="text/csv",
+    filename = f"remembering_lancers_obituaries_{datetime.now():%Y-%m-%d}.csv"
+    return Response(
+        csv_data,
+        mimetype="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+        },
     )

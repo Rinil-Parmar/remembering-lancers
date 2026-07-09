@@ -9,6 +9,10 @@ from remembering_lancers.scraper.parser import (
 from remembering_lancers.scraper.runner import (
     SEARCH_KEYWORD,
     current_month_only_enabled,
+    force_rescan_enabled,
+    get_max_pages,
+    get_repeated_page_stop_threshold,
+    get_scraper_mode,
     get_search_keywords,
     get_target_city,
     get_matching_alumni_keyword,
@@ -89,10 +93,12 @@ def test_matching_alumni_keyword_returns_keyword():
 
 
 def test_scraper_configuration_helpers_read_environment(monkeypatch):
+    monkeypatch.setenv("SCRAPER_MODE", "listing_scan")
     monkeypatch.setenv("SCRAPER_SEARCH_KEYWORDS", "Alpha, Beta,, Gamma ")
     monkeypatch.setenv("SCRAPER_CURRENT_MONTH_ONLY", "false")
     monkeypatch.setenv("SCRAPER_CITY", "WindsorStar")
 
+    assert get_scraper_mode() == "listing_scan"
     assert get_search_keywords() == ["Alpha", "Beta", "Gamma"]
     assert current_month_only_enabled() is False
     assert get_target_city() == "windsorstar"
@@ -102,10 +108,21 @@ def test_get_search_keywords_defaults_when_env_missing(monkeypatch):
     monkeypatch.delenv("SCRAPER_SEARCH_KEYWORDS", raising=False)
 
     assert get_search_keywords() == [
-        "University of Windsor",
         "UWindsor",
         "Windsor University",
+        "Assumption University",
+        "Assumption College",
+        "Windsor Law",
+        "professor emeritus",
+        "alumnus",
+        "alumni",
     ]
+
+
+def test_scraper_mode_defaults_to_keyword_search(monkeypatch):
+    monkeypatch.delenv("SCRAPER_MODE", raising=False)
+
+    assert get_scraper_mode() == "keyword_search"
 
 
 def test_current_month_only_enabled_defaults_to_true(monkeypatch):
@@ -138,6 +155,18 @@ def test_resume_from_state_enabled_accepts_false_values(monkeypatch):
         assert resume_from_state_enabled() is False
 
 
+def test_force_rescan_enabled_defaults_to_false(monkeypatch):
+    monkeypatch.delenv("SCRAPER_FORCE_RESCAN", raising=False)
+
+    assert force_rescan_enabled() is False
+
+
+def test_force_rescan_enabled_accepts_truthy_values(monkeypatch):
+    for value in ["1", "true", "yes", "on"]:
+        monkeypatch.setenv("SCRAPER_FORCE_RESCAN", value)
+        assert force_rescan_enabled() is True
+
+
 def test_request_timeout_defaults_and_reads_environment(monkeypatch):
     monkeypatch.delenv("SCRAPER_REQUEST_TIMEOUT", raising=False)
     assert get_request_timeout() == 10
@@ -152,6 +181,28 @@ def test_retry_total_defaults_and_reads_environment(monkeypatch):
 
     monkeypatch.setenv("SCRAPER_RETRY_TOTAL", "5")
     assert get_retry_total() == 5
+
+
+def test_max_pages_defaults_and_reads_environment(monkeypatch):
+    monkeypatch.delenv("SCRAPER_MAX_PAGES", raising=False)
+    assert get_max_pages() == 2
+
+    monkeypatch.setenv("SCRAPER_MAX_PAGES", "12")
+    assert get_max_pages() == 12
+
+
+def test_repeated_page_stop_threshold_defaults_and_reads_environment(monkeypatch):
+    monkeypatch.delenv("SCRAPER_REPEATED_PAGE_STOP_THRESHOLD", raising=False)
+    assert get_repeated_page_stop_threshold() == 3
+
+    monkeypatch.setenv("SCRAPER_REPEATED_PAGE_STOP_THRESHOLD", "5")
+    assert get_repeated_page_stop_threshold() == 5
+
+
+def test_repeated_page_stop_threshold_never_goes_below_one(monkeypatch):
+    monkeypatch.setenv("SCRAPER_REPEATED_PAGE_STOP_THRESHOLD", "0")
+
+    assert get_repeated_page_stop_threshold() == 1
 
 
 def test_order_subdomains_prioritizes_windsor_and_nearby_locations(monkeypatch):

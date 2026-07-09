@@ -8,8 +8,7 @@ function updateEntriesFetchedDisplay(value) {
 
 function startScraping() {
   if (scrapingActive) {
-    // Now checking direct scrapingActive value
-    alert("Scraping is already running.");
+    setScraperNotice("Scraping is already running.");
     return;
   }
 
@@ -26,24 +25,24 @@ function startScraping() {
       return response.json();
     })
     .then((data) => {
-      alert(data.message);
+      setScraperNotice(data.message);
       scrapingActive = data.scraping_active; // Use server's response
-      updateScraperUI();
+      updateScraperUI(data.current_run);
       if (data.last_scrape_time) {
         // Update last scrape time after start
         updateLastScrapeTimeDisplay(data.last_scrape_time);
       }
+      updateScrapingStatusDisplay();
     })
     .catch((error) => {
       console.error("Error starting scraping:", error);
-      alert("Error starting scraping. Check console for details.");
+      setScraperNotice("Error starting scraping. Check console for details.", true);
     });
 }
 
 function stopScraping() {
   if (!scrapingActive) {
-    // Now checking direct scrapingActive value
-    alert("Scraping is not currently running.");
+    setScraperNotice("Scraping is not currently running.");
     return;
   }
 
@@ -60,17 +59,18 @@ function stopScraping() {
       return response.json();
     })
     .then((data) => {
-      alert(data.message);
+      setScraperNotice(data.message);
       scrapingActive = data.scraping_active; // Use server's response
-      updateScraperUI();
+      updateScraperUI(data.current_run);
       if (data.last_scrape_time) {
         // Update last scrape time after stop
         updateLastScrapeTimeDisplay(data.last_scrape_time);
       }
+      updateScrapingStatusDisplay();
     })
     .catch((error) => {
       console.error("Error stopping scraping:", error);
-      alert("Error stopping scraping. Check console for details.");
+      setScraperNotice("Error stopping scraping. Check console for details.", true);
     });
 }
 
@@ -79,7 +79,7 @@ function updateScrapingStatusDisplay() {
     .then((response) => response.json())
     .then((data) => {
       scrapingActive = data.scraping_active; // Update scrapingActive from server status
-      updateScraperUI(); // Call updateUI function
+      updateScraperUI(data.current_run); // Call updateUI function
       if (data.last_scrape_time) {
         // Update last scrape time on status update
         updateLastScrapeTimeDisplay(data.last_scrape_time);
@@ -90,18 +90,99 @@ function updateScrapingStatusDisplay() {
     });
 }
 
-function updateScraperUI() {
+function updateScraperUI(currentRun = null) {
   // NEW FUNCTION to update UI elements based on scrapingActive
   if (scrapingActive) {
     document.getElementById("startButton").disabled = true;
     document.getElementById("stopButton").disabled = false;
-    document.getElementById("scrapingStatus").textContent =
-      "Scraping running...";
   } else {
     document.getElementById("startButton").disabled = false;
     document.getElementById("stopButton").disabled = true;
-    document.getElementById("scrapingStatus").textContent = "Not running";
   }
+
+  renderScraperRun(currentRun);
+}
+
+function renderScraperRun(currentRun) {
+  const statusElement = document.getElementById("scrapingStatus");
+  const status = currentRun?.status || (scrapingActive ? "running" : "idle");
+  const statusLabel = formatStatusLabel(status);
+
+  if (statusElement) {
+    statusElement.textContent = statusLabel;
+    statusElement.className = `scraper-status-badge ${statusClassName(status)}`;
+  }
+
+  setText("scraperCity", currentRun?.city || "-");
+  setText("scraperKeyword", currentRun?.search_keyword || "-");
+  setText("scraperPage", currentRun?.page_number ?? "-");
+  setText("scraperSaved", currentRun?.saved_count ?? 0);
+  setText("scraperSkipped", currentRun?.skipped_count ?? 0);
+  setText("scraperDuplicates", currentRun?.duplicate_count ?? 0);
+  setText("scraperStartedAt", formatDateTime(currentRun?.started_at));
+  setText("scraperFinishedAt", formatDateTime(currentRun?.finished_at));
+
+  const errorElement = document.getElementById("scraperError");
+  if (!errorElement) return;
+
+  if (currentRun?.error_message) {
+    errorElement.textContent = currentRun.error_message;
+    errorElement.classList.remove("hidden");
+  } else {
+    errorElement.textContent = "";
+    errorElement.classList.add("hidden");
+  }
+}
+
+function setText(elementId, value) {
+  const element = document.getElementById(elementId);
+  if (element) {
+    element.textContent = value;
+  }
+}
+
+function setScraperNotice(message, isError = false) {
+  const notice = document.getElementById("scraperNotice");
+  if (!notice) return;
+
+  notice.textContent = message || "";
+  notice.classList.toggle("text-red-600", isError);
+  notice.classList.toggle("text-gray-500", !isError);
+}
+
+function formatStatusLabel(status) {
+  const labels = {
+    running: "Running",
+    success: "Success",
+    failed: "Failed",
+    stopped: "Stopped",
+    idle: "Not running",
+    completed: "Completed",
+  };
+
+  return labels[status] || "Not running";
+}
+
+function statusClassName(status) {
+  const classes = {
+    running: "status-running",
+    success: "status-success",
+    failed: "status-failed",
+    stopped: "status-stopped",
+    completed: "status-success",
+    idle: "status-idle",
+  };
+
+  return classes[status] || "status-idle";
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return date.toLocaleString();
 }
 
 function clearFilters() {

@@ -65,6 +65,107 @@
         /* You can add more styles to further indicate disabled state if needed */
     }
 
+.scraper-status-badge {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    min-height: 28px;
+    margin-top: 0.75rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.status-running {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.status-success {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.status-failed {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.status-stopped,
+.status-idle {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.scraper-progress-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.scraper-progress-item {
+    min-width: 0;
+    padding: 0.85rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.scraper-progress-item span {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: #64748b;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.scraper-progress-item strong {
+    display: block;
+    overflow-wrap: anywhere;
+    color: #0f172a;
+    font-size: 0.95rem;
+    line-height: 1.35;
+}
+
+.scraper-time-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    color: #64748b;
+    font-size: 0.875rem;
+}
+
+.scraper-time-row strong {
+    color: #334155;
+    font-weight: 700;
+}
+
+.scraper-error {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    background: #fef2f2;
+    color: #991b1b;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+    .scraper-progress-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 520px) {
+    .scraper-progress-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 
 .accordion-button {
     background-color: #f0f0f0;

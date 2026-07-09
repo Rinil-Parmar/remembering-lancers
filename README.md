@@ -127,14 +127,18 @@ APP_ENV=development
 HOST=0.0.0.0
 PORT=8000
 LOG_LEVEL=INFO
+SCRAPER_MODE=keyword_search
 SCRAPER_CITY=
 SCRAPER_CURRENT_MONTH_ONLY=true
 SCRAPER_MAX_PAGES=1
-SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University
-SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+SCRAPER_PAGE_LIMIT=125
+SCRAPER_SEARCH_KEYWORDS=UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
+SCRAPER_ALUMNI_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
 SCRAPER_RESUME_FROM_STATE=true
+SCRAPER_FORCE_RESCAN=false
 SCRAPER_REQUEST_TIMEOUT=10
 SCRAPER_RETRY_TOTAL=3
+SCRAPER_REPEATED_PAGE_STOP_THRESHOLD=3
 ```
 
 Generate a secure secret key:
@@ -157,6 +161,7 @@ This creates or updates:
 obituary
 dist_obituary
 scrape_state
+scrape_runs
 ```
 
 ### 7. Run locally
@@ -265,25 +270,56 @@ Important scraper environment variables:
 
 ```env
 SCRAPER_CITY=windsorstar
+SCRAPER_MODE=keyword_search
 SCRAPER_CURRENT_MONTH_ONLY=false
 SCRAPER_MAX_PAGES=3
-SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
-SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+SCRAPER_PAGE_LIMIT=125
+SCRAPER_SEARCH_KEYWORDS=UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
+SCRAPER_ALUMNI_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
 SCRAPER_RESUME_FROM_STATE=true
+SCRAPER_FORCE_RESCAN=false
 SCRAPER_REQUEST_TIMEOUT=10
 SCRAPER_RETRY_TOTAL=3
+SCRAPER_REPEATED_PAGE_STOP_THRESHOLD=3
 ```
 
+- `SCRAPER_MODE`: use `listing_scan` to scan each obituary once from normal listing pages, or `keyword_search` to use Remembering.ca keyword search pages.
 - `SCRAPER_CITY`: scrape only one Remembering.ca subdomain. Empty means scrape all configured locations, with Windsor and nearby Ontario locations first.
 - `SCRAPER_CURRENT_MONTH_ONLY`: when `true`, skip older publication dates. For discovery/testing, use `false`.
-- `SCRAPER_MAX_PAGES`: maximum search result pages per city and keyword.
-- `SCRAPER_SEARCH_KEYWORDS`: comma-separated search terms used on Remembering.ca.
-- `SCRAPER_EXISTING_URL_STOP_THRESHOLD`: stop a city after this many consecutive already-saved obituary URLs.
+- `SCRAPER_MAX_PAGES`: maximum pages to scan. In `listing_scan`, this is per city listing. In `keyword_search`, this is per city and keyword.
+- `SCRAPER_PAGE_LIMIT`: requested result count per listing/search page. Remembering.ca supports `125`, which reduces listing/search pagination overhead.
+- `SCRAPER_SEARCH_KEYWORDS`: comma-separated search terms used on Remembering.ca. Keep this list focused on terms that return useful site-search results.
+- `SCRAPER_ALUMNI_KEYWORDS`: comma-separated phrases checked inside each obituary body. If omitted, the scraper falls back to `SCRAPER_SEARCH_KEYWORDS`, then built-in defaults.
 - `SCRAPER_RESUME_FROM_STATE`: when `true`, resume from the last URL stored in `scrape_state`. When `false`, ignore previous state and start from page 1.
+- `SCRAPER_FORCE_RESCAN`: when `true`, scan city/keyword pairs even if `scrape_state` says they are completed.
 - `SCRAPER_REQUEST_TIMEOUT`: HTTP timeout in seconds for scraper requests.
 - `SCRAPER_RETRY_TOTAL`: retry count for temporary HTTP failures.
+- `SCRAPER_REPEATED_PAGE_STOP_THRESHOLD`: number of repeated listing pages allowed before marking listing pagination as blocked.
 
 The scraper stores resume progress in the `scrape_state` table. If stopped and started again, it resumes after the last processed URL for each city and search keyword.
+
+The scraper stores Start-click history in the `scrape_runs` table. It tracks status, current city, current keyword, page number, saved count, skipped count, duplicate count, start/end time, and error message.
+
+For production efficiency, prefer:
+
+```env
+SCRAPER_MODE=keyword_search
+SCRAPER_RESUME_FROM_STATE=true
+SCRAPER_FORCE_RESCAN=false
+```
+
+This uses Remembering.ca search pages as a fast candidate source, deduplicates candidate URLs, checks each candidate obituary body against the alumni keywords, skips already-saved obituary URLs, and resumes from the saved page and last processed URL.
+
+For slower completeness checks or backfills, use:
+
+```env
+SCRAPER_MODE=listing_scan
+SCRAPER_PAGE_LIMIT=125
+SCRAPER_RESUME_FROM_STATE=true
+SCRAPER_FORCE_RESCAN=false
+```
+
+This scans normal obituary listing pages one by one and verifies every new obituary body.
 
 ## Manual Scraper Test Checklist
 
@@ -302,13 +338,17 @@ Update `.env`:
 
 ```env
 SCRAPER_CITY=windsorstar
+SCRAPER_MODE=keyword_search
 SCRAPER_CURRENT_MONTH_ONLY=false
-SCRAPER_MAX_PAGES=3
-SCRAPER_SEARCH_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law
-SCRAPER_EXISTING_URL_STOP_THRESHOLD=3
+SCRAPER_MAX_PAGES=100
+SCRAPER_PAGE_LIMIT=125
+SCRAPER_SEARCH_KEYWORDS=UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
+SCRAPER_ALUMNI_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
 SCRAPER_RESUME_FROM_STATE=true
+SCRAPER_FORCE_RESCAN=false
 SCRAPER_REQUEST_TIMEOUT=10
 SCRAPER_RETRY_TOTAL=3
+SCRAPER_REPEATED_PAGE_STOP_THRESHOLD=3
 ```
 
 ### 3. Apply migrations
@@ -355,9 +395,7 @@ Obituary skipped as non-alumni, no alumni keyword matched
 For already-scraped records:
 
 ```text
-Existing obituary reached 1/3
-Existing obituary reached 2/3
-Existing obituary reached 3/3, stopping city
+Existing obituary duplicate skipped
 ```
 
 ### 6. Check database counts
@@ -368,6 +406,7 @@ Git Bash:
 "/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT COUNT(*) FROM obituary;"
 "/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT COUNT(*) FROM dist_obituary;"
 "/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT COUNT(*) FROM scrape_state;"
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT COUNT(*) FROM scrape_runs;"
 ```
 
 ### 7. Check latest scraped records
@@ -382,7 +421,13 @@ Git Bash:
 "/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT subdomain, search_keyword, page_number, last_processed_url, status, updated_at FROM scrape_state ORDER BY updated_at DESC;"
 ```
 
-### 9. Reset scraper resume state if needed
+### 9. Check scraper run history
+
+```bash
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "SELECT id, status, city, search_keyword, page_number, saved_count, skipped_count, duplicate_count, error_message, started_at, finished_at FROM scrape_runs ORDER BY id DESC LIMIT 10;"
+```
+
+### 10. Reset scraper resume state if needed
 
 Only reset state when you intentionally want scraper to start from the beginning again:
 
@@ -401,7 +446,7 @@ The scraper will still update `scrape_state` during the run; it only ignores pre
 To clear all scraper data and state:
 
 ```bash
-"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "TRUNCATE TABLE obituary, dist_obituary, scrape_state RESTART IDENTITY;"
+"/c/Program Files/PostgreSQL/17/bin/psql.exe" -U postgres -d remembering_lancers_dev -c "TRUNCATE TABLE obituary, dist_obituary, scrape_state, scrape_runs RESTART IDENTITY;"
 ```
 
 ## Scraper Safety

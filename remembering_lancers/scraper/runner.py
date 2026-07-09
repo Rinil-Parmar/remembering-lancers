@@ -13,7 +13,7 @@ from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
 from ..extensions import db
-from ..models import DistinctObituary, Obituary, ScrapeState
+from ..models import DistinctObituary, Obituary, ScrapeRun, ScrapeState
 from .locations import CITY_PROVINCE_MAPPING, extract_city_and_province
 from .parser import (
     extract_birth_and_death_dates_from_obituary,
@@ -26,10 +26,16 @@ from .parser import (
 BASE_DOMAIN = "remembering.ca"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10
 DEFAULT_RETRY_TOTAL = 3
+DEFAULT_PAGE_LIMIT = 125
 DEFAULT_SEARCH_KEYWORDS = [
-    "University of Windsor",
     "UWindsor",
     "Windsor University",
+    "Assumption University",
+    "Assumption College",
+    "Windsor Law",
+    "professor emeritus",
+    "alumnus",
+    "alumni",
 ]
 
 DEFAULT_ALUMNI_KEYWORDS = {
@@ -39,7 +45,30 @@ DEFAULT_ALUMNI_KEYWORDS = {
     "Assumption University",
     "Assumption College",
     "Windsor Law",
+    "professor emeritus",
+    "alumnus",
+    "alumni",
 }
+
+SCRAPER_MODE_KEYWORD_SEARCH = "keyword_search"
+SCRAPER_MODE_LISTING_SCAN = "listing_scan"
+LISTING_SCAN_STATE_KEYWORD = "__listing__"
+
+SCRAPE_STATE_RUNNING = "running"
+SCRAPE_STATE_COMPLETED = "completed"
+SCRAPE_STATE_PAGINATION_BLOCKED = "pagination_blocked"
+SCRAPE_STATE_ERROR = "error"
+
+FETCH_STOP_ALREADY_VISITED = "already_visited"
+FETCH_STOP_NO_LINKS = "no_links"
+FETCH_STOP_REPEATED_PAGE = "repeated_page"
+FETCH_STOP_ERROR = "error"
+
+RESULT_SAVED = "saved"
+RESULT_SKIPPED = "skipped"
+RESULT_DUPLICATE = "duplicate"
+RESULT_ERROR = "error"
+RESULT_STOPPED = "stopped"
 
 PRIORITY_SUBDOMAINS = [
     "windsorstar",
@@ -83,6 +112,33 @@ def get_search_keywords():
     ]
 
 
+def get_alumni_keywords():
+    raw_keywords = os.environ.get("SCRAPER_ALUMNI_KEYWORDS")
+    if raw_keywords is None:
+        raw_keywords = os.environ.get("SCRAPER_SEARCH_KEYWORDS")
+    if not raw_keywords:
+        return sorted(DEFAULT_ALUMNI_KEYWORDS, key=len, reverse=True)
+
+    return sorted(
+        {
+            keyword.strip()
+            for keyword in raw_keywords.split(",")
+            if keyword.strip()
+        },
+        key=len,
+        reverse=True,
+    )
+
+
+def get_scraper_mode():
+    mode = os.environ.get("SCRAPER_MODE", SCRAPER_MODE_KEYWORD_SEARCH).strip().lower()
+    if mode in {SCRAPER_MODE_KEYWORD_SEARCH, SCRAPER_MODE_LISTING_SCAN}:
+        return mode
+
+    logging.warning("Invalid SCRAPER_MODE=%s; using keyword_search.", mode)
+    return SCRAPER_MODE_KEYWORD_SEARCH
+
+
 def current_month_only_enabled():
     return os.environ.get("SCRAPER_CURRENT_MONTH_ONLY", "true").lower() in {
         "1",
@@ -101,17 +157,18 @@ def resume_from_state_enabled():
     }
 
 
+def force_rescan_enabled():
+    return os.environ.get("SCRAPER_FORCE_RESCAN", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def get_target_city():
     city = os.environ.get("SCRAPER_CITY", "").strip().lower()
     return city or None
-
-
-def get_existing_url_stop_threshold():
-    try:
-        return max(1, int(os.environ.get("SCRAPER_EXISTING_URL_STOP_THRESHOLD", "3")))
-    except ValueError:
-        logging.warning("Invalid SCRAPER_EXISTING_URL_STOP_THRESHOLD; using 3.")
-        return 3
 
 
 def get_request_timeout():
@@ -139,6 +196,52 @@ def get_retry_total():
     except ValueError:
         logging.warning("Invalid SCRAPER_RETRY_TOTAL; using 3.")
         return DEFAULT_RETRY_TOTAL
+
+
+def get_page_limit():
+    try:
+        return max(1, int(os.environ.get("SCRAPER_PAGE_LIMIT", str(DEFAULT_PAGE_LIMIT))))
+    except ValueError:
+        logging.warning("Invalid SCRAPER_PAGE_LIMIT; using 125.")
+        return DEFAULT_PAGE_LIMIT
+
+
+def get_max_pages():
+    try:
+        return max(1, int(os.environ.get("SCRAPER_MAX_PAGES", "2")))
+    except ValueError:
+        logging.warning("Invalid SCRAPER_MAX_PAGES; using 2.")
+        return 2
+
+
+def get_repeated_page_stop_threshold():
+    try:
+        return max(1, int(os.environ.get("SCRAPER_REPEATED_PAGE_STOP_THRESHOLD", "3")))
+    except ValueError:
+        logging.warning("Invalid SCRAPER_REPEATED_PAGE_STOP_THRESHOLD; using 3.")
+        return 3
+
+
+def log_scraper_configuration():
+    logging.info(
+        (
+            "Scraper configuration: mode=%s city=%s current_month_only=%s max_pages=%s "
+            "page_limit=%s keywords=%s resume_from_state=%s force_rescan=%s "
+            "request_timeout=%s retry_total=%s "
+            "repeated_page_stop_threshold=%s"
+        ),
+        get_scraper_mode(),
+        get_target_city() or "all",
+        current_month_only_enabled(),
+        get_max_pages(),
+        get_page_limit(),
+        ", ".join(get_search_keywords()),
+        resume_from_state_enabled(),
+        force_rescan_enabled(),
+        get_request_timeout(),
+        get_retry_total(),
+        get_repeated_page_stop_threshold(),
+    )
 
 
 def order_subdomains(subdomains):
@@ -212,134 +315,278 @@ def process_search_pagination(
     visited_obituaries,
     stop_event,
 ):
+    publication_date_cache = {}
+    for page in range(1, get_max_pages() + 1):
+        page_urls, stop_keyword = fetch_search_page_urls(
+            session,
+            subdomain,
+            search_keyword,
+            page,
+            visited_search_pages,
+            visited_obituaries,
+            publication_date_cache,
+            stop_event,
+        )
+        if page_urls:
+            yield page, page_urls
+        if stop_keyword or stop_event.is_set():
+            break
+        time.sleep(random.uniform(0.5, 1.5))
+
+
+def build_search_url(subdomain, search_keyword, page):
     base_url = f"https://{subdomain}.{BASE_DOMAIN}"
-    search_path = "/obituaries/all-categories/search"
+    search_path = "/obituaries/obituaries/search"
     search_params = (
-        f"search_type=advanced&ap_search_keyword={quote_plus(search_keyword)}"
+        f"limit={get_page_limit()}"
+        f"&search_type=advanced&ap_search_keyword={quote_plus(search_keyword)}"
         "&sort_by=date&order=desc"
     )
     search_url = f"{base_url}{search_path}?{search_params}"
-    logging.info("[%s] Searching keyword: %s", subdomain.upper(), search_keyword)
+    return f"{search_url}&p={page}" if page > 1 else search_url
 
-    page = 1
-    max_pages = int(os.environ.get("SCRAPER_MAX_PAGES", "2"))
-    first_page_processed = False
-    publication_date_cache = {}
 
-    while page <= max_pages and not stop_event.is_set():
-        logging.info("[%s] Pagination - Starting page %s", subdomain.upper(), page)
-        current_url = f"{search_url}&p={page}" if page > 1 else search_url
+def build_listing_url(subdomain, page):
+    base_url = f"https://{subdomain}.{BASE_DOMAIN}"
+    listing_url = f"{base_url}/obituaries/obituaries/search?limit={get_page_limit()}"
+    return f"{listing_url}&p={page}" if page > 1 else listing_url
 
-        if current_url in visited_search_pages:
+
+def fetch_listing_page_urls(
+    session,
+    subdomain,
+    page,
+    visited_listing_pages,
+    listing_signature_counts,
+    stop_event,
+):
+    logging.info("[%s] Listing scan fetching page %s", subdomain.upper(), page)
+
+    if stop_event.is_set():
+        return [], True
+
+    listing_url = build_listing_url(subdomain, page)
+    if listing_url in visited_listing_pages:
+        logging.info(
+            "[%s] Listing page %s already visited, stopping city.",
+            subdomain.upper(),
+            page,
+        )
+        return [], True, FETCH_STOP_ALREADY_VISITED
+    visited_listing_pages.add(listing_url)
+
+    try:
+        response = session.get(listing_url, timeout=get_request_timeout())
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        base_url = f"https://{subdomain}.{BASE_DOMAIN}"
+        page_obituary_urls = list(
+            dict.fromkeys(
+                urljoin(base_url, link["href"])
+                for link in soup.select('a[href^="/obituary/"]')
+            )
+        )
+        if not page_obituary_urls:
             logging.info(
-                "[%s] Page %s already visited, stopping pagination.",
+                "[%s] Listing page %s has no obituary links; stopping city.",
                 subdomain.upper(),
                 page,
             )
-            break
-        visited_search_pages.add(current_url)
+            return [], True, FETCH_STOP_NO_LINKS
 
-        try:
-            response = session.get(current_url, timeout=get_request_timeout())
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            page_obituary_urls = list(
-                dict.fromkeys(
-                    urljoin(base_url, link["href"])
-                    for link in soup.select('a[href^="/obituary/"]')
-                )
+        page_signature = tuple(page_obituary_urls)
+        if page_signature in listing_signature_counts:
+            repeated_count = listing_signature_counts[page_signature] + 1
+            listing_signature_counts[page_signature] = repeated_count
+            stop_repeated_pages = repeated_count >= get_repeated_page_stop_threshold()
+            logging.warning(
+                (
+                    "[%s] Listing page %s returned repeated page content "
+                    "(repeat %s/%s)."
+                ),
+                subdomain.upper(),
+                page,
+                repeated_count,
+                get_repeated_page_stop_threshold(),
             )
-            if not page_obituary_urls:
+            return [], stop_repeated_pages, FETCH_STOP_REPEATED_PAGE
+        listing_signature_counts[page_signature] = 0
+
+        logging.info(
+            "[%s] Listing page %s collected %s obituary URLs.",
+            subdomain.upper(),
+            page,
+            len(page_obituary_urls),
+        )
+        return page_obituary_urls, False, None
+    except Exception as exc:
+        logging.error(
+            "[%s] Error fetching listing page %s: %s",
+            subdomain.upper(),
+            page,
+            exc,
+        )
+        return [], True, FETCH_STOP_ERROR
+
+
+def fetch_search_page_urls(
+    session,
+    subdomain,
+    search_keyword,
+    page,
+    visited_search_pages,
+    visited_obituaries,
+    publication_date_cache,
+    stop_event,
+):
+    base_url = f"https://{subdomain}.{BASE_DOMAIN}"
+    logging.info(
+        "[%s] Searching keyword: %s page=%s",
+        subdomain.upper(),
+        search_keyword,
+        page,
+    )
+
+    if stop_event.is_set():
+        return [], True
+
+    current_url = build_search_url(subdomain, search_keyword, page)
+    if current_url in visited_search_pages:
+        logging.info(
+            "[%s] Keyword '%s' page %s already visited, stopping keyword.",
+            subdomain.upper(),
+            search_keyword,
+            page,
+        )
+        return [], True
+    visited_search_pages.add(current_url)
+
+    try:
+        response = session.get(current_url, timeout=get_request_timeout())
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        page_obituary_urls = list(
+            dict.fromkeys(
+                urljoin(base_url, link["href"])
+                for link in soup.select('a[href^="/obituary/"]')
+            )
+        )
+        if not page_obituary_urls:
+            logging.info(
+                "[%s] Keyword '%s' page %s: no obituary links found.",
+                subdomain.upper(),
+                search_keyword,
+                page,
+            )
+            return [], True
+
+        page_signature_key = (
+            "search_signature",
+            search_keyword,
+            tuple(page_obituary_urls),
+        )
+        if page_signature_key in visited_search_pages:
+            logging.warning(
+                (
+                    "[%s] Keyword '%s' page %s returned repeated page content; "
+                    "stopping keyword to avoid rescanning the same obituaries."
+                ),
+                subdomain.upper(),
+                search_keyword,
+                page,
+            )
+            return [], True
+        visited_search_pages.add(page_signature_key)
+
+        if not current_month_only_enabled():
+            return page_obituary_urls, False
+
+        if page == 1:
+            first_obit_url = page_obituary_urls[0]
+            pub_date_str, _ = get_publication_date_and_soup(session, first_obit_url)
+            publication_date_cache[first_obit_url] = pub_date_str
+            if current_month_only_enabled() and not is_current_month_and_year(
+                pub_date_str
+            ):
                 logging.info(
-                    "[%s] Page %s: No obituary links found, stopping pagination.",
+                    (
+                        "[%s] First obituary is not current for keyword '%s'. "
+                        "Stopping keyword. url=%s publication_date=%s"
+                    ),
                     subdomain.upper(),
-                    page,
+                    search_keyword,
+                    first_obit_url,
+                    pub_date_str,
                 )
+                return [], True
+
+        obituary_data = []
+        for url in page_obituary_urls:
+            if url in visited_obituaries:
+                continue
+            pub_date_str = publication_date_cache.get(url)
+            if pub_date_str is None:
+                pub_date_str, _ = get_publication_date_and_soup(session, url)
+                publication_date_cache[url] = pub_date_str
+            if not pub_date_str:
+                continue
+            try:
+                pub_date = date_parser.parse(pub_date_str, fuzzy=True)
+                obituary_data.append({"url": url, "pub_date": pub_date})
+            except Exception as exc:
+                logging.error(
+                    "[%s] Error parsing date %s: %s",
+                    subdomain.upper(),
+                    pub_date_str,
+                    exc,
+                )
+
+        obituary_data.sort(key=lambda item: item["pub_date"], reverse=True)
+
+        current_page_urls = []
+        stop_keyword = False
+        for item in obituary_data:
+            pub_date_text = item["pub_date"].strftime("%B %d, %Y")
+
+            if current_month_only_enabled() and not is_current_month_and_year(
+                pub_date_text
+            ):
+                logging.info(
+                    (
+                        "[%s] Non-current obituary found for keyword '%s'. "
+                        "Stopping keyword. url=%s publication_date=%s"
+                    ),
+                    subdomain.upper(),
+                    search_keyword,
+                    item["url"],
+                    pub_date_text,
+                )
+                stop_keyword = True
                 break
 
-            if page == 1 and not first_page_processed:
-                first_obit_url = page_obituary_urls[0]
-                pub_date_str, _ = get_publication_date_and_soup(session, first_obit_url)
-                publication_date_cache[first_obit_url] = pub_date_str
-                if current_month_only_enabled() and not is_current_month_and_year(
-                    pub_date_str
-                ):
-                    logging.info(
-                        (
-                            "[%s] First obituary is not current. "
-                            "Skipping city. url=%s publication_date=%s"
-                        ),
-                        subdomain.upper(),
-                        first_obit_url,
-                        pub_date_str,
-                    )
-                    return
-                first_page_processed = True
+            current_page_urls.append(item["url"])
 
-            obituary_data = []
-            for url in page_obituary_urls:
-                if url in visited_obituaries:
-                    continue
-                pub_date_str = publication_date_cache.get(url)
-                if pub_date_str is None:
-                    pub_date_str, _ = get_publication_date_and_soup(session, url)
-                    publication_date_cache[url] = pub_date_str
-                if not pub_date_str:
-                    continue
-                try:
-                    pub_date = date_parser.parse(pub_date_str, fuzzy=True)
-                    obituary_data.append({"url": url, "pub_date": pub_date})
-                except Exception as exc:
-                    logging.error(
-                        "[%s] Error parsing date %s: %s",
-                        subdomain.upper(),
-                        pub_date_str,
-                        exc,
-                    )
-
-            obituary_data.sort(key=lambda item: item["pub_date"], reverse=True)
-
-            current_page_urls = []
-            for item in obituary_data:
-                pub_date_text = item["pub_date"].strftime("%B %d, %Y")
-
-                if current_month_only_enabled() and not is_current_month_and_year(
-                    pub_date_text
-                ):
-                    logging.info(
-                        (
-                            "[%s] Non-current obituary found. "
-                            "Stopping city processing. url=%s publication_date=%s"
-                        ),
-                        subdomain.upper(),
-                        item["url"],
-                        pub_date_text,
-                    )
-                    if current_page_urls:
-                        yield page, current_page_urls
-                    return
-
-                current_page_urls.append(item["url"])
-
-            if not current_page_urls:
-                logging.info(
-                    "[%s] No matching obituaries on page %s. Stopping.",
-                    subdomain.upper(),
-                    page,
-                )
-                return
-
-            yield page, current_page_urls
-
-            page += 1
-            time.sleep(random.uniform(0.5, 1.5))
-
-        except Exception as exc:
-            logging.error(
-                "[%s] Error processing page %s: %s", subdomain.upper(), page, exc
+        if not current_page_urls:
+            logging.info(
+                "[%s] Keyword '%s' has no matching obituaries on page %s.",
+                subdomain.upper(),
+                search_keyword,
+                page,
             )
-            break
+            return [], True
+
+        return current_page_urls, stop_keyword
+
+    except Exception as exc:
+        logging.error(
+            "[%s] Error processing keyword '%s' page %s: %s",
+            subdomain.upper(),
+            search_keyword,
+            page,
+            exc,
+        )
+        return [], True
 
 
 def get_publication_date_and_soup(session, url):
@@ -360,6 +607,19 @@ def obituary_url_exists(url):
     return Obituary.query.filter_by(obituary_url=url).first() is not None
 
 
+def get_existing_obituary_urls(urls):
+    unique_urls = list(dict.fromkeys(urls))
+    if not unique_urls:
+        return set()
+
+    rows = (
+        db.session.query(Obituary.obituary_url)
+        .filter(Obituary.obituary_url.in_(unique_urls))
+        .all()
+    )
+    return {row[0] for row in rows}
+
+
 def get_or_create_scrape_state(subdomain, search_keyword):
     state = ScrapeState.query.filter_by(
         subdomain=subdomain,
@@ -371,14 +631,14 @@ def get_or_create_scrape_state(subdomain, search_keyword):
     state = ScrapeState(
         subdomain=subdomain,
         search_keyword=search_keyword,
-        status="running",
+        status=SCRAPE_STATE_RUNNING,
     )
     db.session.add(state)
     db.session.commit()
     return state
 
 
-def update_scrape_state(state, page_number, obituary_url, status="running"):
+def update_scrape_state(state, page_number, obituary_url, status=SCRAPE_STATE_RUNNING):
     state.page_number = page_number
     state.last_processed_url = obituary_url
     state.status = status
@@ -386,9 +646,86 @@ def update_scrape_state(state, page_number, obituary_url, status="running"):
     db.session.commit()
 
 
+def mark_stale_scrape_runs_stopped():
+    stale_runs = ScrapeRun.query.filter_by(status="running", finished_at=None).all()
+    if not stale_runs:
+        return
+
+    now = datetime.now()
+    for run in stale_runs:
+        run.status = "stopped"
+        run.finished_at = now
+        if not run.error_message:
+            run.error_message = "Marked stopped before starting a new scraper run."
+    db.session.commit()
+    logging.warning("Marked %s stale scraper run(s) as stopped.", len(stale_runs))
+
+
+def create_scrape_run():
+    mark_stale_scrape_runs_stopped()
+    run = ScrapeRun(status="running", started_at=datetime.now())
+    db.session.add(run)
+    db.session.commit()
+    logging.info("Scrape run started: run_id=%s", run.id)
+    return run
+
+
+def update_scrape_run(
+    run,
+    city=None,
+    search_keyword=None,
+    page_number=None,
+    saved_delta=0,
+    skipped_delta=0,
+    duplicate_delta=0,
+    status=None,
+    error_message=None,
+):
+    if not run:
+        return
+
+    if city is not None:
+        run.city = city
+    if search_keyword is not None:
+        run.search_keyword = search_keyword
+    if page_number is not None:
+        run.page_number = page_number
+    if status is not None:
+        run.status = status
+    if error_message:
+        run.error_message = error_message[:4000]
+
+    run.saved_count = (run.saved_count or 0) + saved_delta
+    run.skipped_count = (run.skipped_count or 0) + skipped_delta
+    run.duplicate_count = (run.duplicate_count or 0) + duplicate_delta
+    db.session.commit()
+
+
+def finish_scrape_run(run, status, error_message=None):
+    if not run:
+        return
+
+    run.status = status
+    run.finished_at = datetime.now()
+    if error_message:
+        run.error_message = error_message[:4000]
+    db.session.commit()
+    logging.info(
+        (
+            "Scrape run finished: run_id=%s status=%s "
+            "saved=%s skipped=%s duplicates=%s"
+        ),
+        run.id,
+        run.status,
+        run.saved_count,
+        run.skipped_count,
+        run.duplicate_count,
+    )
+
+
 def resume_page_urls(page_number, page_urls, state, subdomain):
     if (
-        state.status != "running"
+        state.status != SCRAPE_STATE_RUNNING
         or state.page_number is None
         or not state.last_processed_url
     ):
@@ -423,38 +760,320 @@ def resume_page_urls(page_number, page_urls, state, subdomain):
     return page_urls[resume_index:]
 
 
-def process_city(session, subdomain, stop_event):
+def get_resume_start_page(states, resume_enabled, force_rescan):
+    if not resume_enabled or force_rescan:
+        return 1
+
+    page_numbers = [
+        state.page_number
+        for state in states
+        if state.status == SCRAPE_STATE_RUNNING and state.page_number
+    ]
+    return min(page_numbers) if page_numbers else 1
+
+
+def unpack_page_fetch_result(result):
+    if len(result) == 2:
+        page_urls, stop_scan = result
+        return page_urls, stop_scan, None
+    return result
+
+
+def process_city(session, subdomain, stop_event, scrape_run=None):
+    if get_scraper_mode() == SCRAPER_MODE_LISTING_SCAN:
+        return process_city_listing_scan(session, subdomain, stop_event, scrape_run)
+
+    return process_city_keyword_search(session, subdomain, stop_event, scrape_run)
+
+
+def process_city_listing_scan(session, subdomain, stop_event, scrape_run=None):
+    logging.info("\n%s\nProcessing city: %s\n%s", "=" * 50, subdomain.upper(), "=" * 50)
+
+    total_alumni = 0
+    visited_listing_pages = set()
+    listing_signature_counts = {}
+    visited_obituaries = set()
+    resume_enabled = resume_from_state_enabled()
+    force_rescan = force_rescan_enabled()
+
+    try:
+        scrape_state = get_or_create_scrape_state(
+            subdomain,
+            LISTING_SCAN_STATE_KEYWORD,
+        )
+        update_scrape_run(
+            scrape_run,
+            city=subdomain,
+            search_keyword=LISTING_SCAN_STATE_KEYWORD,
+        )
+
+        if (
+            resume_enabled
+            and not force_rescan
+            and scrape_state.status in {
+                SCRAPE_STATE_COMPLETED,
+                SCRAPE_STATE_PAGINATION_BLOCKED,
+            }
+        ):
+            state_reason = (
+                "pagination was blocked by repeated listing pages"
+                if scrape_state.status == SCRAPE_STATE_PAGINATION_BLOCKED
+                else "listing scan state is completed"
+            )
+            logging.info(
+                (
+                    "[%s] %s; skipping. "
+                    "Set SCRAPER_FORCE_RESCAN=true to scan again."
+                ),
+                subdomain.upper(),
+                state_reason,
+            )
+            update_scrape_run(scrape_run, skipped_delta=1)
+            return
+
+        if not resume_enabled:
+            logging.info(
+                "[%s] SCRAPER_RESUME_FROM_STATE=false; listing scan starts page 1.",
+                subdomain.upper(),
+            )
+        elif force_rescan:
+            logging.info(
+                "[%s] SCRAPER_FORCE_RESCAN=true; listing scan starts from page 1.",
+                subdomain.upper(),
+            )
+
+        logging.info(
+            "[%s] Duplicate obituary URLs will be skipped individually.",
+            subdomain.upper(),
+        )
+
+        start_page = get_resume_start_page([scrape_state], resume_enabled, force_rescan)
+        for page_number in range(start_page, get_max_pages() + 1):
+            if stop_event.is_set():
+                break
+
+            if (
+                resume_enabled
+                and not force_rescan
+                and scrape_state.status == SCRAPE_STATE_RUNNING
+                and scrape_state.page_number is not None
+                and page_number < scrape_state.page_number
+            ):
+                logging.info(
+                    "[%s] Listing resume state skipping page %s.",
+                    subdomain.upper(),
+                    page_number,
+                )
+                continue
+
+            update_scrape_run(
+                scrape_run,
+                city=subdomain,
+                search_keyword=LISTING_SCAN_STATE_KEYWORD,
+                page_number=page_number,
+            )
+            page_urls, stop_city, stop_reason = unpack_page_fetch_result(
+                fetch_listing_page_urls(
+                    session,
+                    subdomain,
+                    page_number,
+                    visited_listing_pages,
+                    listing_signature_counts,
+                    stop_event,
+                )
+            )
+
+            if resume_enabled and not force_rescan:
+                page_urls = resume_page_urls(
+                    page_number,
+                    page_urls,
+                    scrape_state,
+                    subdomain,
+                )
+
+            page_existing_urls = get_existing_obituary_urls(
+                url for url in page_urls if url not in visited_obituaries
+            )
+
+            for url in page_urls:
+                if stop_event.is_set():
+                    logging.info(
+                        "[%s] Stop event detected during listing URL loop.",
+                        subdomain.upper(),
+                    )
+                    break
+
+                if url in visited_obituaries:
+                    continue
+
+                if url in page_existing_urls:
+                    visited_obituaries.add(url)
+                    update_scrape_run(scrape_run, duplicate_delta=1)
+                    logging.info(
+                        "[%s] Existing obituary duplicate skipped: %s",
+                        subdomain.upper(),
+                        url,
+                    )
+                    update_scrape_state(scrape_state, page_number, url)
+                    continue
+
+                success = False
+                result = None
+                for attempt in range(3):
+                    try:
+                        logging.info(
+                            "[%s] Listing scan attempt %s to process obituary: %s",
+                            subdomain.upper(),
+                            attempt + 1,
+                            url,
+                        )
+                        result = process_obituary(
+                            session,
+                            db.session,
+                            url,
+                            visited_obituaries,
+                            stop_event,
+                        )
+                        if record_obituary_result(scrape_run, result):
+                            total_alumni += 1
+                        success = True
+                        break
+                    except requests.exceptions.RequestException as exc:
+                        logging.warning(
+                            "[%s] Listing scan attempt %s failed for %s: %s",
+                            subdomain.upper(),
+                            attempt + 1,
+                            url,
+                            exc,
+                        )
+                        time.sleep(2**attempt)
+
+                if not success:
+                    logging.error(
+                        "[%s] Failed to process listing obituary after 3 attempts: %s",
+                        subdomain.upper(),
+                        url,
+                    )
+                    update_scrape_run(
+                        scrape_run,
+                        skipped_delta=1,
+                        error_message=f"Failed to process obituary: {url}",
+                    )
+
+                update_scrape_state(scrape_state, page_number, url)
+                time.sleep(random.uniform(0.7, 1.3))
+
+            if stop_city or stop_event.is_set():
+                if stop_city:
+                    stop_status = SCRAPE_STATE_COMPLETED
+                    if stop_reason == FETCH_STOP_REPEATED_PAGE:
+                        stop_status = SCRAPE_STATE_PAGINATION_BLOCKED
+                    elif stop_reason == FETCH_STOP_ERROR:
+                        stop_status = SCRAPE_STATE_ERROR
+                    update_scrape_state(
+                        scrape_state,
+                        page_number,
+                        scrape_state.last_processed_url,
+                        status=stop_status,
+                    )
+                break
+
+            time.sleep(random.uniform(0.5, 1.5))
+
+    except Exception as exc:
+        logging.error("[%s] Critical error processing listing scan: %s", subdomain.upper(), exc)
+        update_scrape_run(
+            scrape_run,
+            city=subdomain,
+            status="failed",
+            error_message=f"{subdomain}: {exc}",
+        )
+    finally:
+        logging.info("[%s] Completed. Alumni found: %s", subdomain.upper(), total_alumni)
+
+
+def process_city_keyword_search(session, subdomain, stop_event, scrape_run=None):
     logging.info("\n%s\nProcessing city: %s\n%s", "=" * 50, subdomain.upper(), "=" * 50)
 
     total_alumni = 0
     visited_search_pages = set()
     visited_obituaries = set()
+    publication_date_cache = {}
 
     try:
-        for search_keyword in get_search_keywords():
-            if stop_event.is_set():
-                break
+        resume_enabled = resume_from_state_enabled()
+        force_rescan = force_rescan_enabled()
+        search_keywords = get_search_keywords()
+        keyword_states = {}
+        active_keywords = []
+        update_scrape_run(scrape_run, city=subdomain)
 
-            resume_enabled = resume_from_state_enabled()
+        for search_keyword in search_keywords:
             scrape_state = get_or_create_scrape_state(subdomain, search_keyword)
-            if not resume_enabled:
-                logging.info(
-                    "[%s] SCRAPER_RESUME_FROM_STATE=false; starting from page 1.",
-                    subdomain.upper(),
-                )
-            existing_url_count = 0
-            existing_url_stop_threshold = get_existing_url_stop_threshold()
+            keyword_states[search_keyword] = scrape_state
 
-            page_generator = process_search_pagination(
-                session,
-                subdomain,
-                search_keyword,
-                visited_search_pages,
-                visited_obituaries,
-                stop_event,
+            if (
+                resume_enabled
+                and not force_rescan
+                and scrape_state.status == SCRAPE_STATE_COMPLETED
+            ):
+                logging.info(
+                    (
+                        "[%s] Scrape state is completed for keyword '%s'; "
+                        "skipping. Set SCRAPER_FORCE_RESCAN=true to scan again."
+                    ),
+                    subdomain.upper(),
+                    search_keyword,
+                )
+                update_scrape_run(
+                    scrape_run,
+                    city=subdomain,
+                    search_keyword=search_keyword,
+                    skipped_delta=1,
+                )
+                continue
+
+            active_keywords.append(search_keyword)
+
+        if not resume_enabled:
+            logging.info(
+                "[%s] SCRAPER_RESUME_FROM_STATE=false; starting from page 1.",
+                subdomain.upper(),
+            )
+        elif force_rescan:
+            logging.info(
+                "[%s] SCRAPER_FORCE_RESCAN=true; scanning completed state again.",
+                subdomain.upper(),
             )
 
-            for page_number, page_urls in page_generator:
+        logging.info(
+            "[%s] Duplicate obituary URLs will be skipped individually.",
+            subdomain.upper(),
+        )
+
+        start_page = get_resume_start_page(
+            [keyword_states[keyword] for keyword in active_keywords],
+            resume_enabled,
+            force_rescan,
+        )
+        for page_number in range(start_page, get_max_pages() + 1):
+            if stop_event.is_set() or not active_keywords:
+                break
+
+            logging.info("[%s] Page-first scan starting page %s", subdomain.upper(), page_number)
+            page_url_sources = {}
+            keywords_to_stop_after_page = set()
+
+            for search_keyword in list(active_keywords):
+                if stop_event.is_set():
+                    break
+
+                update_scrape_run(
+                    scrape_run,
+                    city=subdomain,
+                    search_keyword=search_keyword,
+                    page_number=page_number,
+                )
                 if stop_event.is_set():
                     logging.info(
                         "[%s] Stop event detected during page URL processing.",
@@ -462,7 +1081,34 @@ def process_city(session, subdomain, stop_event):
                     )
                     break
 
-                if resume_enabled:
+                scrape_state = keyword_states[search_keyword]
+                if (
+                    resume_enabled
+                    and not force_rescan
+                    and scrape_state.status == SCRAPE_STATE_RUNNING
+                    and scrape_state.page_number is not None
+                    and page_number < scrape_state.page_number
+                ):
+                    logging.info(
+                        "[%s] Resume state skipping keyword '%s' page %s.",
+                        subdomain.upper(),
+                        search_keyword,
+                        page_number,
+                    )
+                    continue
+
+                page_urls, stop_keyword = fetch_search_page_urls(
+                    session,
+                    subdomain,
+                    search_keyword,
+                    page_number,
+                    visited_search_pages,
+                    visited_obituaries,
+                    publication_date_cache,
+                    stop_event,
+                )
+
+                if resume_enabled and not force_rescan:
                     page_urls = resume_page_urls(
                         page_number,
                         page_urls,
@@ -471,99 +1117,153 @@ def process_city(session, subdomain, stop_event):
                     )
 
                 for url in page_urls:
-                    if stop_event.is_set():
-                        logging.info(
-                            "[%s] Stop event detected during obituary URL loop.",
-                            subdomain.upper(),
-                        )
-                        break
+                    page_url_sources.setdefault(url, set()).add(search_keyword)
 
-                    if url in visited_obituaries:
-                        logging.debug(
-                            "[%s] Obituary URL already visited: %s. Skipping.",
-                            subdomain.upper(),
-                            url,
-                        )
-                        continue
+                if stop_keyword:
+                    keywords_to_stop_after_page.add(search_keyword)
 
-                    if obituary_url_exists(url):
-                        existing_url_count += 1
-                        logging.info(
-                            (
-                                "[%s] Existing obituary reached %s/%s: %s"
-                            ),
-                            subdomain.upper(),
-                            existing_url_count,
-                            existing_url_stop_threshold,
-                            url,
-                        )
+            if stop_event.is_set():
+                break
+
+            if not page_url_sources:
+                for search_keyword in keywords_to_stop_after_page:
+                    if search_keyword in active_keywords:
+                        scrape_state = keyword_states[search_keyword]
                         update_scrape_state(
                             scrape_state,
                             page_number,
-                            url,
+                            scrape_state.last_processed_url,
+                            status=SCRAPE_STATE_COMPLETED,
                         )
-                        if existing_url_count >= existing_url_stop_threshold:
-                            logging.info(
-                                (
-                                    "[%s] Existing obituary reached, "
-                                    "stopping city: %s"
-                                ),
-                                subdomain.upper(),
-                                url,
-                            )
-                            update_scrape_state(
-                                scrape_state,
-                                page_number,
-                                url,
-                                status="completed",
-                            )
-                            return
-                        continue
+                        active_keywords.remove(search_keyword)
+                if not active_keywords:
+                    break
+                continue
 
-                    existing_url_count = 0
+            logging.info(
+                "[%s] Page %s collected %s unique obituary URLs from keywords.",
+                subdomain.upper(),
+                page_number,
+                len(page_url_sources),
+            )
 
-                    success = False
-                    for attempt in range(3):
-                        try:
-                            logging.info(
-                                "[%s] Attempt %s to process obituary: %s",
-                                subdomain.upper(),
-                                attempt + 1,
-                                url,
-                            )
-                            result = process_obituary(
-                                session,
-                                db.session,
-                                url,
-                                visited_obituaries,
-                                stop_event,
-                            )
-                            if result and result["is_alumni"]:
-                                total_alumni += 1
-                            success = True
-                            break
-                        except requests.exceptions.RequestException as exc:
-                            logging.warning(
-                                "[%s] Attempt %s failed for %s: %s",
-                                subdomain.upper(),
-                                attempt + 1,
-                                url,
-                                exc,
-                            )
-                            time.sleep(2**attempt)
+            page_existing_urls = get_existing_obituary_urls(
+                url for url in page_url_sources if url not in visited_obituaries
+            )
 
-                    if not success:
-                        logging.error(
-                            "[%s] Failed to process obituary after 3 attempts: %s",
+            for url, source_keywords in page_url_sources.items():
+                if stop_event.is_set():
+                    logging.info(
+                        "[%s] Stop event detected during obituary URL loop.",
+                        subdomain.upper(),
+                    )
+                    break
+
+                source_keywords = {
+                    search_keyword
+                    for search_keyword in source_keywords
+                    if search_keyword in active_keywords
+                }
+                if not source_keywords:
+                    continue
+
+                if url in visited_obituaries:
+                    logging.debug(
+                        "[%s] Obituary URL already visited: %s. Skipping.",
+                        subdomain.upper(),
+                        url,
+                    )
+                    continue
+
+                if url in page_existing_urls:
+                    visited_obituaries.add(url)
+                    update_scrape_run(scrape_run, duplicate_delta=1)
+                    for search_keyword in source_keywords:
+                        scrape_state = keyword_states[search_keyword]
+                        logging.info(
+                            (
+                                "[%s] Existing obituary duplicate skipped "
+                                "for keyword '%s': %s"
+                            ),
                             subdomain.upper(),
+                            search_keyword,
                             url,
                         )
+                        update_scrape_state(scrape_state, page_number, url)
+                    continue
 
-                    update_scrape_state(scrape_state, page_number, url)
-                    time.sleep(random.uniform(0.7, 1.3))
+                success = False
+                result = None
+                for attempt in range(3):
+                    try:
+                        logging.info(
+                            "[%s] Attempt %s to process obituary: %s",
+                            subdomain.upper(),
+                            attempt + 1,
+                            url,
+                        )
+                        result = process_obituary(
+                            session,
+                            db.session,
+                            url,
+                            visited_obituaries,
+                            stop_event,
+                        )
+                        if record_obituary_result(scrape_run, result):
+                            total_alumni += 1
+                        success = True
+                        break
+                    except requests.exceptions.RequestException as exc:
+                        logging.warning(
+                            "[%s] Attempt %s failed for %s: %s",
+                            subdomain.upper(),
+                            attempt + 1,
+                            url,
+                            exc,
+                        )
+                        time.sleep(2**attempt)
+
+                if not success:
+                    logging.error(
+                        "[%s] Failed to process obituary after 3 attempts: %s",
+                        subdomain.upper(),
+                        url,
+                    )
+                    update_scrape_run(
+                        scrape_run,
+                        skipped_delta=1,
+                        error_message=f"Failed to process obituary: {url}",
+                    )
+
+                for search_keyword in source_keywords:
+                    update_scrape_state(
+                        keyword_states[search_keyword],
+                        page_number,
+                        url,
+                    )
+                time.sleep(random.uniform(0.7, 1.3))
+
+            for search_keyword in keywords_to_stop_after_page:
+                if search_keyword in active_keywords:
+                    scrape_state = keyword_states[search_keyword]
+                    update_scrape_state(
+                        scrape_state,
+                        page_number,
+                        scrape_state.last_processed_url,
+                        status=SCRAPE_STATE_COMPLETED,
+                    )
+                    active_keywords.remove(search_keyword)
+
+            time.sleep(random.uniform(0.5, 1.5))
 
     except Exception as exc:
         logging.error("[%s] Critical error processing city: %s", subdomain.upper(), exc)
+        update_scrape_run(
+            scrape_run,
+            city=subdomain,
+            status="failed",
+            error_message=f"{subdomain}: {exc}",
+        )
     finally:
         logging.info("[%s] Completed. Alumni found: %s", subdomain.upper(), total_alumni)
 
@@ -587,7 +1287,7 @@ def is_current_month_and_year(publication_date_str):
 def get_matching_alumni_keyword(content_text):
     normalized_content = (content_text or "").casefold()
 
-    for keyword in DEFAULT_ALUMNI_KEYWORDS:
+    for keyword in get_alumni_keywords():
         if keyword.casefold() in normalized_content:
             return keyword
 
@@ -720,11 +1420,66 @@ def build_obituary_payload(
     }
 
 
+def build_obituary_result(
+    status,
+    url,
+    is_alumni=False,
+    name=None,
+    publication_date=None,
+    tags=None,
+    error=None,
+    reason=None,
+):
+    result = {
+        "status": status,
+        "is_alumni": is_alumni,
+        "url": url,
+        "publication_date": publication_date,
+        "tags": tags,
+    }
+    if name is not None:
+        result["name"] = name
+    if error is not None:
+        result["error"] = error
+    if reason is not None:
+        result["reason"] = reason
+    return result
+
+
+def record_obituary_result(scrape_run, result):
+    if not result:
+        update_scrape_run(scrape_run, skipped_delta=1)
+        return False
+
+    status = result.get("status")
+    if status == RESULT_STOPPED:
+        return False
+
+    if status == RESULT_SAVED or (status is None and result.get("is_alumni")):
+        update_scrape_run(scrape_run, saved_delta=1)
+        return True
+
+    if status == RESULT_DUPLICATE:
+        update_scrape_run(scrape_run, duplicate_delta=1)
+        return False
+
+    if status == RESULT_ERROR:
+        update_scrape_run(
+            scrape_run,
+            skipped_delta=1,
+            error_message=result.get("error") or "Obituary processing error.",
+        )
+        return False
+
+    update_scrape_run(scrape_run, skipped_delta=1)
+    return False
+
+
 def process_obituary(session, db_session, url, visited_obituaries, stop_event):
     time.sleep(0.2)
     if stop_event.is_set():
         logging.info("Scraping stopped by user request before obituary processing.")
-        return None
+        return build_obituary_result(RESULT_STOPPED, url, reason="stop_requested")
 
     parsed = urlparse(url)
     subdomain = parsed.hostname.split(".")[0].upper() if parsed.hostname else "UNKNOWN"
@@ -732,12 +1487,12 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
 
     if url in visited_obituaries:
         logging.debug("[%s] Obituary already visited: %s. Skipping.", subdomain, url)
-        return None
-    visited_obituaries.add(url)
+        return build_obituary_result(RESULT_SKIPPED, url, reason="already_visited")
 
     try:
         response = session.get(url, timeout=get_request_timeout())
         response.raise_for_status()
+        visited_obituaries.add(url)
         soup = BeautifulSoup(response.text, "html.parser")
 
         first_name, last_name = extract_obituary_name(soup)
@@ -747,7 +1502,11 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
                 subdomain,
                 url,
             )
-            return None
+            return build_obituary_result(
+                RESULT_SKIPPED,
+                url,
+                reason="missing_name",
+            )
 
         content_text = extract_obituary_content(soup, subdomain, url)
         matched_alumni_keyword = get_matching_alumni_keyword(content_text)
@@ -780,11 +1539,13 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
                 url,
             )
             return {
+                "status": RESULT_SKIPPED,
                 "name": f"{first_name} {last_name}",
                 "is_alumni": False,
                 "url": url,
                 "publication_date": publication_date,
                 "tags": tags,
+                "reason": "no_alumni_keyword",
             }
 
         existing_obituary = Obituary.query.filter_by(obituary_url=url).first()
@@ -800,11 +1561,13 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
                 url,
             )
             return {
+                "status": RESULT_DUPLICATE,
                 "name": existing_obituary.name,
                 "is_alumni": existing_obituary.is_alumni,
                 "url": url,
                 "publication_date": existing_obituary.publication_date,
                 "tags": existing_obituary.tags,
+                "reason": "existing_url",
             }
 
         logging.info(
@@ -839,7 +1602,15 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
                 subdomain,
                 url,
             )
-            return None
+            return build_obituary_result(
+                RESULT_SKIPPED,
+                url,
+                is_alumni=True,
+                name=f"{first_name} {last_name}",
+                publication_date=publication_date,
+                tags=tags,
+                reason="unknown_city",
+            )
 
         city, province = city_province_result
         latitude, longitude = get_coordinates(city, province)
@@ -884,6 +1655,7 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
             payload["name"],
         )
         return {
+            "status": RESULT_SAVED,
             "name": payload["name"],
             "is_alumni": True,
             "url": url,
@@ -891,10 +1663,19 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
             "tags": tags,
         }
 
+    except requests.exceptions.RequestException:
+        db_session.rollback()
+        raise
     except Exception as exc:
         db_session.rollback()
         logging.error("[%s] Error processing obituary %s: %s", subdomain, url, exc)
-        return None
+        visited_obituaries.add(url)
+        return build_obituary_result(
+            RESULT_ERROR,
+            url,
+            error=str(exc),
+            reason="processing_error",
+        )
 
 
 def get_coordinates(city, province):
@@ -909,26 +1690,46 @@ def get_coordinates(city, province):
 
 def main(stop_event):
     logging.info("Starting obituary scraping process.")
+    log_scraper_configuration()
+    scrape_run = create_scrape_run()
     session = configure_session()
 
-    subdomains = get_city_subdomains(session)
-    if not subdomains:
-        logging.error("No city subdomains found. Aborting.")
-        return
+    try:
+        subdomains = get_city_subdomains(session)
+        if not subdomains:
+            logging.error("No city subdomains found. Aborting.")
+            finish_scrape_run(scrape_run, "failed", "No city subdomains found.")
+            return
 
-    subdomains = order_subdomains(subdomains)
-    if not subdomains:
-        logging.error("No matching city subdomains to process. Aborting.")
-        return
+        subdomains = order_subdomains(subdomains)
+        if not subdomains:
+            logging.error("No matching city subdomains to process. Aborting.")
+            finish_scrape_run(
+                scrape_run,
+                "failed",
+                "No matching city subdomains to process.",
+            )
+            return
 
-    logging.info("City scrape order: %s", ", ".join(subdomains))
-    logging.info("Found %s city subdomains to process.", len(subdomains))
+        logging.info("City scrape order: %s", ", ".join(subdomains))
+        logging.info("Found %s city subdomains to process.", len(subdomains))
 
-    for subdomain in subdomains:
-        if stop_event.is_set():
-            logging.info("Scraping stopped by system request")
-            break
+        for subdomain in subdomains:
+            if stop_event.is_set():
+                logging.info("Scraping stopped by system request")
+                break
 
-        process_city(session, subdomain, stop_event)
+            process_city(session, subdomain, stop_event, scrape_run)
 
-    logging.info("Obituary scraping process completed or stopped.")
+        db.session.refresh(scrape_run)
+        if scrape_run.status == "failed":
+            finish_scrape_run(scrape_run, "failed", scrape_run.error_message)
+        elif stop_event.is_set():
+            finish_scrape_run(scrape_run, "stopped")
+        else:
+            finish_scrape_run(scrape_run, "success")
+    except Exception as exc:
+        logging.exception("Obituary scraping process failed.")
+        finish_scrape_run(scrape_run, "failed", str(exc))
+    finally:
+        logging.info("Obituary scraping process completed or stopped.")

@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import time
 import logging
 from datetime import datetime
@@ -29,26 +30,52 @@ DEFAULT_RETRY_TOTAL = 3
 DEFAULT_PAGE_LIMIT = 125
 DEFAULT_SEARCH_KEYWORDS = [
     "UWindsor",
-    "Windsor University",
+    "University of Windsor",
     "Assumption University",
     "Assumption College",
     "Windsor Law",
-    "professor emeritus",
-    "alumnus",
-    "alumni",
+    "Essex College",
 ]
 
 DEFAULT_ALUMNI_KEYWORDS = {
     "University of Windsor",
     "UWindsor",
-    "Windsor University",
     "Assumption University",
     "Assumption College",
     "Windsor Law",
-    "professor emeritus",
-    "alumnus",
-    "alumni",
+    "Essex College",
 }
+
+DEFAULT_INSTITUTION_KEYWORDS = [
+    "University of Windsor",
+    "UWindsor",
+    "Windsor Law",
+    "Assumption University",
+    "Assumption College",
+    "Essex College",
+]
+
+DEFAULT_STATUS_KEYWORDS = [
+    "graduated",
+    "graduating",
+    "graduate",
+    "grad",
+    "alumnus",
+    "alumna",
+    "alumni",
+    "attended",
+    "studied",
+    "degree",
+    "B.A.",
+    "B.Sc.",
+    "LL.B.",
+    "J.D.",
+    "class of",
+]
+
+SCRAPER_MATCH_MODE_SIMPLE = "simple"
+SCRAPER_MATCH_MODE_PROXIMITY = "proximity"
+DEFAULT_MATCH_WINDOW = 160
 
 SCRAPER_MODE_KEYWORD_SEARCH = "keyword_search"
 SCRAPER_MODE_LISTING_SCAN = "listing_scan"
@@ -128,6 +155,51 @@ def get_alumni_keywords():
         key=len,
         reverse=True,
     )
+
+
+def parse_keyword_list(raw_keywords, default_keywords):
+    if not raw_keywords:
+        return list(default_keywords)
+
+    return [
+        keyword.strip()
+        for keyword in raw_keywords.split(",")
+        if keyword.strip()
+    ]
+
+
+def get_match_mode():
+    mode = os.environ.get(
+        "SCRAPER_MATCH_MODE",
+        SCRAPER_MATCH_MODE_PROXIMITY,
+    ).strip().lower()
+    if mode in {SCRAPER_MATCH_MODE_SIMPLE, SCRAPER_MATCH_MODE_PROXIMITY}:
+        return mode
+
+    logging.warning("Invalid SCRAPER_MATCH_MODE=%s; using proximity.", mode)
+    return SCRAPER_MATCH_MODE_PROXIMITY
+
+
+def get_institution_keywords():
+    return parse_keyword_list(
+        os.environ.get("SCRAPER_INSTITUTION_KEYWORDS"),
+        DEFAULT_INSTITUTION_KEYWORDS,
+    )
+
+
+def get_status_keywords():
+    return parse_keyword_list(
+        os.environ.get("SCRAPER_STATUS_KEYWORDS"),
+        DEFAULT_STATUS_KEYWORDS,
+    )
+
+
+def get_match_window():
+    try:
+        return max(1, int(os.environ.get("SCRAPER_MATCH_WINDOW", DEFAULT_MATCH_WINDOW)))
+    except ValueError:
+        logging.warning("Invalid SCRAPER_MATCH_WINDOW; using 160.")
+        return DEFAULT_MATCH_WINDOW
 
 
 def get_scraper_mode():
@@ -228,7 +300,7 @@ def log_scraper_configuration():
             "Scraper configuration: mode=%s city=%s current_month_only=%s max_pages=%s "
             "page_limit=%s keywords=%s resume_from_state=%s force_rescan=%s "
             "request_timeout=%s retry_total=%s "
-            "repeated_page_stop_threshold=%s"
+            "repeated_page_stop_threshold=%s match_mode=%s match_window=%s"
         ),
         get_scraper_mode(),
         get_target_city() or "all",
@@ -241,6 +313,8 @@ def log_scraper_configuration():
         get_request_timeout(),
         get_retry_total(),
         get_repeated_page_stop_threshold(),
+        get_match_mode(),
+        get_match_window(),
     )
 
 
@@ -1284,18 +1358,113 @@ def is_current_month_and_year(publication_date_str):
         return False
 
 
-def get_matching_alumni_keyword(content_text):
+def normalize_match_text(content_text):
+    return " ".join((content_text or "").split())
+
+
+def build_keyword_pattern(keyword):
+    escaped = re.escape(keyword.strip())
+    escaped = re.sub(r"\\\s+", r"\\s+", escaped)
+    return re.compile(rf"(?<!\w){escaped}(?!\w)", re.IGNORECASE)
+
+
+def find_keyword_occurrences(content_text, keywords):
+    occurrences = []
+    for keyword in sorted(set(keywords), key=len, reverse=True):
+        pattern = build_keyword_pattern(keyword)
+        for match in pattern.finditer(content_text):
+            occurrences.append(
+                {
+                    "keyword": keyword,
+                    "start": match.start(),
+                    "end": match.end(),
+                    "text": match.group(0),
+                }
+            )
+    return sorted(occurrences, key=lambda item: item["start"])
+
+
+def build_alumni_match_result(institution, status, content_text):
+    start = min(institution["start"], status["start"])
+    end = max(institution["end"], status["end"])
+    padding = 45
+    excerpt_start = max(0, start - padding)
+    excerpt_end = min(len(content_text), end + padding)
+    return {
+        "institution": institution["keyword"],
+        "status": status["keyword"],
+        "matched_text": content_text[excerpt_start:excerpt_end].strip(),
+    }
+
+
+def get_simple_alumni_match(content_text):
     normalized_content = (content_text or "").casefold()
 
     for keyword in get_alumni_keywords():
         if keyword.casefold() in normalized_content:
-            return keyword
+            return {
+                "institution": keyword,
+                "status": "simple_keyword",
+                "matched_text": keyword,
+            }
 
     return None
 
 
+def get_proximity_alumni_match(content_text):
+    normalized_content = normalize_match_text(content_text)
+    if not normalized_content:
+        return None
+
+    institution_occurrences = find_keyword_occurrences(
+        normalized_content,
+        get_institution_keywords(),
+    )
+    if not institution_occurrences:
+        return None
+
+    status_occurrences = find_keyword_occurrences(
+        normalized_content,
+        get_status_keywords(),
+    )
+    if not status_occurrences:
+        return None
+
+    match_window = get_match_window()
+    for institution in institution_occurrences:
+        for status in status_occurrences:
+            distance = max(
+                0,
+                max(institution["start"], status["start"])
+                - min(institution["end"], status["end"]),
+            )
+            if distance <= match_window:
+                return build_alumni_match_result(
+                    institution,
+                    status,
+                    normalized_content,
+                )
+
+    return None
+
+
+def get_alumni_match(content_text):
+    if get_match_mode() == SCRAPER_MATCH_MODE_SIMPLE:
+        return get_simple_alumni_match(content_text)
+
+    return get_proximity_alumni_match(content_text)
+
+
+def get_matching_alumni_keyword(content_text):
+    match = get_alumni_match(content_text)
+    if not match:
+        return None
+
+    return match["institution"]
+
+
 def is_alumni_obituary(content_text):
-    return get_matching_alumni_keyword(content_text) is not None
+    return get_alumni_match(content_text) is not None
 
 
 def extract_obituary_content(soup, subdomain, url):
@@ -1509,8 +1678,8 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
             )
 
         content_text = extract_obituary_content(soup, subdomain, url)
-        matched_alumni_keyword = get_matching_alumni_keyword(content_text)
-        alumni = matched_alumni_keyword is not None
+        alumni_match = get_alumni_match(content_text)
+        alumni = alumni_match is not None
 
         publication_date_str = get_publication_date_from_soup(soup)
         logging.info(
@@ -1548,6 +1717,18 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
                 "reason": "no_alumni_keyword",
             }
 
+        logging.info(
+            (
+                "[%s] Alumni match found for %s: "
+                "institution=%s status=%s matched_text=%s"
+            ),
+            subdomain,
+            url,
+            alumni_match["institution"],
+            alumni_match["status"],
+            alumni_match["matched_text"],
+        )
+
         existing_obituary = Obituary.query.filter_by(obituary_url=url).first()
         if existing_obituary:
             logging.info(
@@ -1571,9 +1752,10 @@ def process_obituary(session, db_session, url, visited_obituaries, stop_event):
             }
 
         logging.info(
-            "[%s] Alumni keyword matched: %s url=%s",
+            "[%s] Alumni proximity matched: institution=%s status=%s url=%s",
             subdomain,
-            matched_alumni_keyword,
+            alumni_match["institution"],
+            alumni_match["status"],
             url,
         )
 

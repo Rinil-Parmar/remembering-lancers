@@ -15,9 +15,14 @@ from remembering_lancers.scraper.runner import (
     get_scraper_mode,
     get_search_keywords,
     get_target_city,
+    get_alumni_match,
+    get_institution_keywords,
     get_matching_alumni_keyword,
+    get_match_mode,
+    get_match_window,
     get_request_timeout,
     get_retry_total,
+    get_status_keywords,
     is_alumni_obituary,
     order_subdomains,
     resume_from_state_enabled,
@@ -80,8 +85,9 @@ def test_search_keyword_is_encoded_as_a_single_search_phrase():
 
 def test_alumni_detection_is_case_insensitive():
     assert is_alumni_obituary("A proud graduate of the university of windsor.")
-    assert is_alumni_obituary("He loved UWindsor and the local community.")
+    assert is_alumni_obituary("He was a proud UWindsor alumnus.")
     assert not is_alumni_obituary("A long-time Windsor resident.")
+    assert not is_alumni_obituary("He loved UWindsor and the local community.")
 
 
 def test_matching_alumni_keyword_returns_keyword():
@@ -92,14 +98,58 @@ def test_matching_alumni_keyword_returns_keyword():
     assert get_matching_alumni_keyword("A long-time Windsor resident.") is None
 
 
+def test_proximity_match_returns_institution_and_status():
+    match = get_alumni_match(
+        "She earned her LL.B. from Windsor Law before serving her community."
+    )
+
+    assert match["institution"] == "Windsor Law"
+    assert match["status"] == "LL.B."
+    assert "Windsor Law" in match["matched_text"]
+
+
+def test_proximity_match_supports_status_before_institution():
+    match = get_alumni_match(
+        "After graduating, he attended the University of Windsor and built a career."
+    )
+
+    assert match["institution"] == "University of Windsor"
+    assert match["status"] in {"graduating", "attended"}
+
+
+def test_proximity_match_rejects_noisy_school_name():
+    assert (
+        get_alumni_match(
+            "He studied at Windsor University School of Medicine before moving away."
+        )
+        is None
+    )
+
+
+def test_simple_match_mode_keeps_legacy_flat_keyword_matching(monkeypatch):
+    monkeypatch.setenv("SCRAPER_MATCH_MODE", "simple")
+    monkeypatch.setenv("SCRAPER_ALUMNI_KEYWORDS", "Custom Alumni Phrase")
+
+    assert get_matching_alumni_keyword("Custom alumni phrase appears here.") == (
+        "Custom Alumni Phrase"
+    )
+
+
 def test_scraper_configuration_helpers_read_environment(monkeypatch):
     monkeypatch.setenv("SCRAPER_MODE", "listing_scan")
     monkeypatch.setenv("SCRAPER_SEARCH_KEYWORDS", "Alpha, Beta,, Gamma ")
+    monkeypatch.setenv("SCRAPER_INSTITUTION_KEYWORDS", "School A, School B")
+    monkeypatch.setenv("SCRAPER_STATUS_KEYWORDS", "graduate, degree")
+    monkeypatch.setenv("SCRAPER_MATCH_WINDOW", "80")
     monkeypatch.setenv("SCRAPER_CURRENT_MONTH_ONLY", "false")
     monkeypatch.setenv("SCRAPER_CITY", "WindsorStar")
 
     assert get_scraper_mode() == "listing_scan"
     assert get_search_keywords() == ["Alpha", "Beta", "Gamma"]
+    assert get_match_mode() == "proximity"
+    assert get_institution_keywords() == ["School A", "School B"]
+    assert get_status_keywords() == ["graduate", "degree"]
+    assert get_match_window() == 80
     assert current_month_only_enabled() is False
     assert get_target_city() == "windsorstar"
 
@@ -109,13 +159,11 @@ def test_get_search_keywords_defaults_when_env_missing(monkeypatch):
 
     assert get_search_keywords() == [
         "UWindsor",
-        "Windsor University",
+        "University of Windsor",
         "Assumption University",
         "Assumption College",
         "Windsor Law",
-        "professor emeritus",
-        "alumnus",
-        "alumni",
+        "Essex College",
     ]
 
 

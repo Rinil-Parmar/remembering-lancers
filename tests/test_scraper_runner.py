@@ -791,6 +791,7 @@ def test_keyword_state_is_completed_when_keyword_stops(app, monkeypatch):
 
 
 def test_configured_alumni_keywords_are_used(monkeypatch):
+    monkeypatch.setenv("SCRAPER_MATCH_MODE", "simple")
     monkeypatch.setenv("SCRAPER_ALUMNI_KEYWORDS", "Custom Alumni Phrase")
 
     assert (

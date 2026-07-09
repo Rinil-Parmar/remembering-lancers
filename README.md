@@ -132,8 +132,12 @@ SCRAPER_CITY=
 SCRAPER_CURRENT_MONTH_ONLY=true
 SCRAPER_MAX_PAGES=1
 SCRAPER_PAGE_LIMIT=125
-SCRAPER_SEARCH_KEYWORDS=UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
-SCRAPER_ALUMNI_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
+SCRAPER_SEARCH_KEYWORDS=UWindsor,University of Windsor,Assumption University,Assumption College,Windsor Law,Essex College
+SCRAPER_ALUMNI_KEYWORDS=University of Windsor,UWindsor,Assumption University,Assumption College,Windsor Law,Essex College
+SCRAPER_MATCH_MODE=proximity
+SCRAPER_INSTITUTION_KEYWORDS=University of Windsor,UWindsor,Windsor Law,Assumption University,Assumption College,Essex College
+SCRAPER_STATUS_KEYWORDS=graduated,graduating,graduate,grad,alumnus,alumna,alumni,attended,studied,degree,B.A.,B.Sc.,LL.B.,J.D.,class of
+SCRAPER_MATCH_WINDOW=160
 SCRAPER_RESUME_FROM_STATE=true
 SCRAPER_FORCE_RESCAN=false
 SCRAPER_REQUEST_TIMEOUT=10
@@ -274,8 +278,12 @@ SCRAPER_MODE=keyword_search
 SCRAPER_CURRENT_MONTH_ONLY=false
 SCRAPER_MAX_PAGES=3
 SCRAPER_PAGE_LIMIT=125
-SCRAPER_SEARCH_KEYWORDS=UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
-SCRAPER_ALUMNI_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
+SCRAPER_SEARCH_KEYWORDS=UWindsor,University of Windsor,Assumption University,Assumption College,Windsor Law,Essex College
+SCRAPER_ALUMNI_KEYWORDS=University of Windsor,UWindsor,Assumption University,Assumption College,Windsor Law,Essex College
+SCRAPER_MATCH_MODE=proximity
+SCRAPER_INSTITUTION_KEYWORDS=University of Windsor,UWindsor,Windsor Law,Assumption University,Assumption College,Essex College
+SCRAPER_STATUS_KEYWORDS=graduated,graduating,graduate,grad,alumnus,alumna,alumni,attended,studied,degree,B.A.,B.Sc.,LL.B.,J.D.,class of
+SCRAPER_MATCH_WINDOW=160
 SCRAPER_RESUME_FROM_STATE=true
 SCRAPER_FORCE_RESCAN=false
 SCRAPER_REQUEST_TIMEOUT=10
@@ -289,7 +297,11 @@ SCRAPER_REPEATED_PAGE_STOP_THRESHOLD=3
 - `SCRAPER_MAX_PAGES`: maximum pages to scan. In `listing_scan`, this is per city listing. In `keyword_search`, this is per city and keyword.
 - `SCRAPER_PAGE_LIMIT`: requested result count per listing/search page. Remembering.ca supports `125`, which reduces listing/search pagination overhead.
 - `SCRAPER_SEARCH_KEYWORDS`: comma-separated search terms used on Remembering.ca. Keep this list focused on terms that return useful site-search results.
-- `SCRAPER_ALUMNI_KEYWORDS`: comma-separated phrases checked inside each obituary body. If omitted, the scraper falls back to `SCRAPER_SEARCH_KEYWORDS`, then built-in defaults.
+- `SCRAPER_ALUMNI_KEYWORDS`: comma-separated phrases used by the fallback simple matcher.
+- `SCRAPER_MATCH_MODE`: `proximity` requires an institution and education/status keyword near each other. `simple` keeps legacy flat keyword matching.
+- `SCRAPER_INSTITUTION_KEYWORDS`: comma-separated school/institution phrases used by proximity matching.
+- `SCRAPER_STATUS_KEYWORDS`: comma-separated graduation, attendance, degree, or alumni phrases used by proximity matching.
+- `SCRAPER_MATCH_WINDOW`: maximum characters allowed between institution and status matches.
 - `SCRAPER_RESUME_FROM_STATE`: when `true`, resume from the last URL stored in `scrape_state`. When `false`, ignore previous state and start from page 1.
 - `SCRAPER_FORCE_RESCAN`: when `true`, scan city/keyword pairs even if `scrape_state` says they are completed.
 - `SCRAPER_REQUEST_TIMEOUT`: HTTP timeout in seconds for scraper requests.
@@ -342,8 +354,12 @@ SCRAPER_MODE=keyword_search
 SCRAPER_CURRENT_MONTH_ONLY=false
 SCRAPER_MAX_PAGES=100
 SCRAPER_PAGE_LIMIT=125
-SCRAPER_SEARCH_KEYWORDS=UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
-SCRAPER_ALUMNI_KEYWORDS=University of Windsor,UWindsor,Windsor University,Assumption University,Assumption College,Windsor Law,professor emeritus,alumnus,alumni
+SCRAPER_SEARCH_KEYWORDS=UWindsor,University of Windsor,Assumption University,Assumption College,Windsor Law,Essex College
+SCRAPER_ALUMNI_KEYWORDS=University of Windsor,UWindsor,Assumption University,Assumption College,Windsor Law,Essex College
+SCRAPER_MATCH_MODE=proximity
+SCRAPER_INSTITUTION_KEYWORDS=University of Windsor,UWindsor,Windsor Law,Assumption University,Assumption College,Essex College
+SCRAPER_STATUS_KEYWORDS=graduated,graduating,graduate,grad,alumnus,alumna,alumni,attended,studied,degree,B.A.,B.Sc.,LL.B.,J.D.,class of
+SCRAPER_MATCH_WINDOW=160
 SCRAPER_RESUME_FROM_STATE=true
 SCRAPER_FORCE_RESCAN=false
 SCRAPER_REQUEST_TIMEOUT=10

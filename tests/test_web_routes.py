@@ -12,6 +12,7 @@ from remembering_lancers.web.formatting import (
 def test_dashboard_about_detail_and_csv_routes(client):
     assert client.get("/").status_code == 200
     assert client.get("/about").status_code == 200
+    assert client.get("/health").get_json() == {"status": "ok", "database": "ok"}
     assert client.get("/obituary/1").status_code == 200
 
     csv_response = client.get("/download_csv")

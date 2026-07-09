@@ -200,6 +200,14 @@ For Linux deployment later, the same app object is available as:
 wsgi:app
 ```
 
+Health check endpoint:
+
+```text
+GET /health
+```
+
+Returns `200` with database status when the app and database are reachable. Returns `503` if the database check fails.
+
 ## Docker
 
 Docker runs two containers:

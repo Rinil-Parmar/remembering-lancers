@@ -11,7 +11,7 @@ from flask import (
     request,
     url_for,
 )
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from . import web_bp
 from .formatting import split_donation_items, split_obituary_paragraphs
@@ -62,6 +62,17 @@ def obituary_detail(obituary_id):
 @web_bp.route("/about")
 def about():
     return render_template("about.html")
+
+
+@web_bp.get("/health")
+def health():
+    try:
+        db.session.execute(text("SELECT 1"))
+    except Exception:
+        current_app.logger.exception("Health check failed")
+        return jsonify({"status": "unhealthy", "database": "unavailable"}), 503
+
+    return jsonify({"status": "ok", "database": "ok"}), 200
 
 
 @web_bp.post("/update_tags/<int:obituary_id>")

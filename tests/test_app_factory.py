@@ -23,3 +23,14 @@ def test_production_config_requires_secret_and_database_url(monkeypatch):
 
     with pytest.raises(RuntimeError, match="Missing required production"):
         create_app("production")
+
+
+def test_production_config_rejects_placeholder_secret(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "replace-with-a-secure-random-secret")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://user:password@localhost:5432/remembering_lancers",
+    )
+
+    with pytest.raises(RuntimeError, match="default placeholder"):
+        create_app("production")

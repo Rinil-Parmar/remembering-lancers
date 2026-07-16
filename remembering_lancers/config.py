@@ -60,5 +60,10 @@ def validate_config(config_name, app_config):
             + ", ".join(missing)
         )
 
-    if app_config["SECRET_KEY"] == "dev-secret-change-me":
-        raise RuntimeError("Production SECRET_KEY must not use the development default.")
+    unsafe_secret_keys = {
+        "dev-secret-change-me",
+        "replace-with-a-secure-secret",
+        "replace-with-a-secure-random-secret",
+    }
+    if app_config["SECRET_KEY"] in unsafe_secret_keys:
+        raise RuntimeError("Production SECRET_KEY must not use a default placeholder.")

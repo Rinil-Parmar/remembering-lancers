@@ -218,7 +218,27 @@ Docker runs two containers:
 Build and run the full stack:
 
 ```bash
-docker compose up --build
+cp .env.docker.example .env.docker
+```
+
+Edit `.env.docker` and replace:
+
+```text
+SECRET_KEY
+POSTGRES_PASSWORD
+DATABASE_URL
+```
+
+Generate a secure `SECRET_KEY`:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Make sure the password in `DATABASE_URL` matches `POSTGRES_PASSWORD`, then run:
+
+```bash
+docker compose --env-file .env.docker up --build
 ```
 
 The web container runs migrations before starting Waitress:
@@ -236,39 +256,40 @@ http://127.0.0.1:8000
 Stop containers while keeping database data:
 
 ```bash
-docker compose down
+docker compose --env-file .env.docker down
 ```
 
 Delete containers and database volume for a fresh Docker database:
 
 ```bash
-docker compose down -v
+docker compose --env-file .env.docker down -v
 ```
 
 Run migrations manually inside Docker if needed:
 
 ```bash
-docker compose exec web flask db upgrade
+docker compose --env-file .env.docker exec web flask db upgrade
 ```
 
 Open the Docker PostgreSQL shell:
 
 ```bash
-docker compose exec db psql -U postgres -d remembering_lancers
+docker compose --env-file .env.docker exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
 Check Docker logs:
 
 ```bash
-docker compose logs -f web
+docker compose --env-file .env.docker logs -f web
 ```
 
-For real deployment, change these Compose defaults before exposing the app:
+For real deployment:
 
-- `SECRET_KEY`
-- `POSTGRES_PASSWORD`
-- `DATABASE_URL`
-- published ports and network settings
+- Do not commit `.env.docker`.
+- Store `SECRET_KEY`, `POSTGRES_PASSWORD`, and `DATABASE_URL` in the hosting platform's secret manager.
+- Do not expose PostgreSQL publicly. The Compose file binds PostgreSQL to `127.0.0.1` for local development only.
+- Prefer a managed PostgreSQL service for backups, restore testing, monitoring, and encryption.
+- Put the app behind HTTPS and authentication before exposing scraper controls.
 
 ## Testing
 

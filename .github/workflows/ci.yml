@@ -12,6 +12,7 @@ jobs:
   test:
     name: Tests and Config Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -22,16 +23,35 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Validate app imports
+        env:
+          APP_ENV: testing
+        run: python -c "from remembering_lancers import create_app; app = create_app('testing'); assert app"
+
       - name: Run tests
         env:
           APP_ENV: testing
         run: python -m pytest
 
+      - name: Check Docker Compose has no hardcoded production secrets
+        shell: bash
+        run: |
+          if grep -nE 'change-this-secret-before-deploy|postgres:postgres|POSTGRES_PASSWORD: postgres' docker-compose.yml; then
+            echo "Hardcoded Docker credentials found in docker-compose.yml"
+            exit 1
+          fi
+
       - name: Validate Docker Compose config
-        run: docker compose config --quiet
+        run: docker compose --env-file .env.docker.example config --quiet
+
+      - name: Build Docker image
+        run: docker build --tag remembering-lancers:test .
